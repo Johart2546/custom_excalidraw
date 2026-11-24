@@ -879,7 +879,10 @@ export default function App() {
               onClick={beginTitleEdit}
             >
               <span className="title-text">{title}</span>
-              <IconPencil />
+              <span className="title-edit">
+                <IconPencil />
+                <span>แก้ชื่อ</span>
+              </span>
             </button>
           )}
         </div>
