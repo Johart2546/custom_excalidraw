@@ -243,13 +243,18 @@ async function mapWithLimit(items, limit, worker) {
 /* -------------------------------------------------------------------- page */
 
 function renderPage(entries, generatedAt) {
+  const ICON_DOWNLOAD =
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4v11"/><path d="M7.5 11.5L12 16l4.5-4.5"/><path d="M5 20h14"/></svg>';
+  const ICON_TRASH =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/></svg>';
+
   const cards = entries
     .map((entry) => {
       const href = `/b/${encodeURIComponent(entry.slug)}`;
       const download = `/scenes/${entry.slug}.excalidraw`;
       const preview = entry.thumb
         ? `<img src="/gallery/thumbs/${entry.slug}.png?${entry.mtime}" alt="" loading="lazy">`
-        : `<span class="placeholder">no preview</span>`;
+        : `<span class="placeholder">ยังไม่มีภาพตัวอย่าง</span>`;
       const bits = [
         `${entry.elements} elements`,
         entry.frames ? `${entry.frames} frames` : null,
@@ -260,16 +265,20 @@ function renderPage(entries, generatedAt) {
       return `      <article class="card" data-slug="${escapeHtml(entry.slug)}" data-search="${escapeHtml(
         `${entry.title} ${entry.subtitle} ${entry.slug}`.toLowerCase(),
       )}">
-        <a class="shot" href="${href}">${preview}</a>
+        <a class="shot" href="${href}" aria-label="เปิด ${escapeHtml(entry.title)}">${preview}</a>
         <div class="body">
           <h2>${escapeHtml(entry.title)}</h2>
           ${entry.subtitle ? `<p class="sub">${escapeHtml(entry.subtitle)}</p>` : ""}
           <p class="meta">${escapeHtml(bits.join(" · "))}</p>
           <div class="actions">
             <a class="primary" href="${href}">เปิด</a>
-            <a class="ghost" href="${download}" download>ดาวน์โหลด</a>
-            <button class="del" type="button" data-id="${escapeHtml(entry.slug)}">ลบ</button>
-            <span class="path">${escapeHtml(download)}</span>
+            <span class="grow"></span>
+            <a class="iconbtn" href="${download}" download aria-label="ดาวน์โหลด ${escapeHtml(
+              entry.title,
+            )}" title="ดาวน์โหลด">${ICON_DOWNLOAD}</a>
+            <button class="iconbtn danger del" type="button" data-id="${escapeHtml(
+              entry.slug,
+            )}" aria-label="ลบ ${escapeHtml(entry.title)}" title="ลบ">${ICON_TRASH}<span>ลบ</span></button>
           </div>
         </div>
       </article>`;
@@ -281,150 +290,146 @@ function renderPage(entries, generatedAt) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
 <title>Excalidraw boards</title>
 <style>
   :root {
-    color-scheme: dark;
-    --bg: #121212;
-    --panel: #1b1b1f;
-    --line: #2c2c31;
-    --ink: #f2f2f4;
-    --muted: #9a9aa3;
+    color-scheme: light;
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --line: #e4e4e7;
+    --ink: #1b1b1f;
+    --muted: #6f6f78;
     --accent: #6965db;
-    --accent-soft: #232178;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      color-scheme: light;
-      --bg: #f7f7f9;
-      --panel: #ffffff;
-      --line: #e3e3e8;
-      --ink: #16161a;
-      --muted: #6b6b74;
-      --accent-soft: #ecebff;
-    }
+    --accent-soft: #ecebfb;
+    --danger: #b42323;
+    --danger-line: #e8c2c2;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 28px 24px 56px;
+    padding: 26px 22px 44px;
     background: var(--bg);
     color: var(--ink);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", Inter, system-ui, sans-serif;
   }
-  header { max-width: 1320px; margin: 0 auto 26px; }
-  .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 14px; }
-  h1 { margin: 0; font-size: 21px; letter-spacing: -0.2px; }
-  .count { color: var(--muted); font-size: 14px; }
-  .app-link {
-    margin-left: auto; color: var(--ink); text-decoration: none;
-    border: 1px solid var(--line); background: var(--panel);
-    padding: 7px 13px; border-radius: 8px; font-size: 13px;
-  }
-  .app-link:hover { border-color: var(--accent); }
-  .tagline { color: var(--muted); font-size: 13.5px; margin: 10px 0 16px; max-width: 70ch; }
-  .tagline code {
-    background: var(--accent-soft); color: inherit; padding: 1px 5px;
-    border-radius: 4px; font-size: 12.5px;
-  }
+  header { max-width: 1180px; margin: 0 auto 18px; }
+  .top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.2px; }
+  .count { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+  .grow { flex: 1; }
   input[type="search"] {
-    width: 100%; max-width: 340px; padding: 9px 12px; font-size: 14px;
+    width: 220px; max-width: 100%; padding: 7px 11px; font: inherit; font-size: 13px;
     color: var(--ink); background: var(--panel);
-    border: 1px solid var(--line); border-radius: 8px; outline: none;
+    border: 1px solid var(--line); border-radius: 7px; outline: none;
   }
+  input[type="search"]::placeholder { color: var(--muted); }
   input[type="search"]:focus { border-color: var(--accent); }
+  .app-link {
+    color: #fff; text-decoration: none; white-space: nowrap;
+    background: var(--accent); border: 1px solid var(--accent);
+    padding: 7px 12px; border-radius: 7px; font-size: 12.5px;
+  }
+  .app-link:hover { filter: brightness(.94); }
   .grid {
-    max-width: 1320px; margin: 0 auto;
-    display: grid; gap: 18px;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    max-width: 1180px; margin: 0 auto;
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   }
   .card {
     display: flex; flex-direction: column; overflow: hidden;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 11px;
+    transition: border-color .14s ease, transform .14s ease;
   }
+  .card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
   .shot {
     display: flex; align-items: center; justify-content: center;
-    height: 190px; padding: 10px; background: #fff; overflow: hidden;
+    aspect-ratio: 16 / 10; padding: 10px; background: #fff; overflow: hidden;
   }
   .shot img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
-  .placeholder { color: #adb5bd; font-size: 12.5px; }
-  .body { display: flex; flex-direction: column; gap: 5px; padding: 13px 14px 14px; }
-  h2 { margin: 0; font-size: 15px; font-weight: 600; }
-  .sub { margin: 0; color: var(--muted); font-size: 13px; }
-  .meta { margin: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .actions { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
-  .primary, .ghost {
-    text-decoration: none; font-size: 12.5px; padding: 6px 11px;
-    border-radius: 7px; border: 1px solid transparent; white-space: nowrap;
+  .placeholder { color: #a9a9b3; font-size: 12px; }
+  .body { display: flex; flex-direction: column; gap: 3px; padding: 11px 12px 12px; }
+  h2 { margin: 0; font-size: 14.5px; font-weight: 600; line-height: 1.35; }
+  .sub { margin: 0; color: var(--muted); font-size: 12px; }
+  .meta {
+    margin: 0; color: var(--muted); font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .primary { background: var(--accent); color: #fff; }
-  .primary:hover { filter: brightness(1.1); }
-  .ghost { border-color: var(--line); color: var(--ink); }
-  .ghost:hover { border-color: var(--accent); }
-  .del {
-    font: inherit; font-size: 12.5px; padding: 6px 11px; cursor: pointer;
-    border-radius: 7px; border: 1px solid #5a2a2a; background: transparent; color: #ff9b9b;
+  .actions { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
+  .primary {
+    display: inline-flex; align-items: center; text-decoration: none;
+    background: var(--accent); color: #fff; font-size: 12.5px;
+    padding: 5px 12px; border-radius: 7px; border: 1px solid var(--accent);
   }
-  .del:hover { background: #2c1416; border-color: #8a3434; }
-  .del:disabled { opacity: .5; cursor: default; }
+  .primary:hover { filter: brightness(.94); }
+  .iconbtn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+    height: 27px; padding: 0 7px; border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--line); background: transparent; color: var(--muted);
+    font: inherit; font-size: 12px; text-decoration: none;
+    opacity: .78; transition: opacity .12s ease, border-color .12s ease, color .12s ease;
+  }
+  .card:hover .iconbtn, .card:focus-within .iconbtn { opacity: 1; }
+  .iconbtn:hover { border-color: var(--accent); color: var(--ink); }
+  .iconbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; opacity: 1; }
+  .iconbtn.danger { color: var(--danger); border-color: var(--danger-line); }
+  .iconbtn.danger:hover { border-color: var(--danger); }
+  .iconbtn:disabled { opacity: .4; cursor: default; }
+  @media (hover: none) {
+    .iconbtn { opacity: 1; }
+  }
   .modal {
     position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
-    background: rgba(6,8,12,.66); backdrop-filter: blur(3px); padding: 20px;
+    background: rgba(24, 24, 27, .42); padding: 20px;
   }
   .modal[hidden] { display: none; }
   .modal-card {
-    width: min(420px, 100%); background: #1b1f27; border: 1px solid var(--line);
-    border-radius: 14px; padding: 22px 22px 16px; box-shadow: 0 24px 60px rgba(0,0,0,.55);
+    width: min(400px, 100%); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px 20px 14px;
   }
-  .modal-card h2 { margin: 0 0 8px; font-size: 17px; }
-  .modal-card p { margin: 0 0 16px; font-size: 13.5px; line-height: 1.55; color: var(--muted); }
-  .modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
-  .modal-hint { margin: 12px 0 0; font-size: 12px; color: #7b8494; text-align: right; }
+  .modal-card h2 { margin: 0 0 8px; font-size: 15.5px; }
+  .modal-card p { margin: 0 0 16px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+  .modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+  .ghost {
+    font: inherit; font-size: 12.5px; padding: 6px 12px; cursor: pointer;
+    border-radius: 7px; border: 1px solid var(--line); background: transparent; color: var(--ink);
+  }
+  .ghost:hover { border-color: var(--accent); }
+  .modal-hint { margin: 12px 0 0; font-size: 11.5px; color: var(--muted); text-align: right; }
   .holdbtn {
     position: relative; overflow: hidden; min-width: 168px; justify-content: center;
-    display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 8px;
-    border: 1px solid #6b2b2b; background: transparent; color: #ff9b9b;
-    font: inherit; font-size: 13px; cursor: pointer; user-select: none; touch-action: none;
+    display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 7px;
+    border: 1px solid var(--danger-line); background: transparent; color: var(--danger);
+    font: inherit; font-size: 12.5px; cursor: pointer; user-select: none; touch-action: none;
   }
   .holdbtn .fill {
     position: absolute; left: 0; top: 0; bottom: 0; width: 0; pointer-events: none;
-    background: rgba(255,90,90,.35);
+    background: rgba(255, 90, 90, .28);
   }
   .holdbtn .lbl { position: relative; }
   .holdbtn:disabled { cursor: default; }
-  .path {
-    margin-left: auto; color: var(--muted); font-size: 11px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
   footer {
-    max-width: 1320px; margin: 34px auto 0; padding-top: 16px;
-    border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px;
+    max-width: 1180px; margin: 26px auto 0; color: var(--muted); font-size: 11px;
   }
-  .empty { max-width: 1320px; margin: 40px auto; color: var(--muted); }
+  .empty { max-width: 1180px; margin: 38px auto; color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
 <header>
   <div class="top">
-    <h1>Excalidraw boards</h1>
+    <h1>Boards</h1>
     <span class="count" id="count">${entries.length} board${entries.length === 1 ? "" : "s"}</span>
+    <span class="grow"></span>
+    <input type="search" id="q" placeholder="ค้นหากระดาน…" aria-label="ค้นหากระดาน" autocomplete="off" spellcheck="false">
     <a class="app-link" href="/new">+ กระดานใหม่</a>
   </div>
-  <p class="tagline">
-    กระดานถูกเก็บเป็นไฟล์ <code>.excalidraw</code> บนเซิร์ฟเวอร์นี้ &mdash; แก้ในเบราว์เซอร์แล้วบันทึกกลับไฟล์ทันที
-    <strong>เปิด</strong> = เข้าไปแก้, <strong>ดาวน์โหลด</strong> = เก็บไฟล์ไว้ใช้เอง
-  </p>
-  <input type="search" id="q" placeholder="ค้นหาชื่อกระดาน…" autocomplete="off" spellcheck="false">
 </header>
 <main class="grid" id="grid">
 ${cards}
 </main>
 <p class="empty" id="empty" hidden>ไม่พบกระดานที่ตรงกับชื่อนี้</p>
-<footer>
-  Generated ${escapeHtml(generatedAt)} by <code>gallery/build.mjs</code>
-  &middot; rebuild after adding a board: <code>node gallery/build.mjs</code>
-</footer>
+<footer>อัปเดต ${escapeHtml(generatedAt)}</footer>
 <div class="modal" id="del-modal" hidden>
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="del-title">
     <h2 id="del-title">ลบกระดานนี้?</h2>
@@ -443,6 +448,11 @@ ${cards}
   const grid = document.getElementById("grid");
   const count = document.getElementById("count");
   const empty = document.getElementById("empty");
+  // the same glyphs the built page uses, so cards added at runtime look identical
+  const ICONS = {
+    download: ${JSON.stringify(ICON_DOWNLOAD)},
+    trash: ${JSON.stringify(ICON_TRASH)},
+  };
 
   function applyFilter() {
     const cards = [...grid.querySelectorAll(".card")];
@@ -592,6 +602,25 @@ ${cards}
         card.remove();
         removed += 1;
       }
+      // Renames in the editor only write the sidecar, so the static card keeps
+      // the name it was built with. Refresh it here instead of keeping two
+      // names for the same board until someone rebuilds the catalogue.
+      const byId = new Map(boards.map((board) => [board.id, board]));
+      for (const card of grid.querySelectorAll(".card")) {
+        const board = byId.get(card.dataset.slug);
+        const h2 = card.querySelector("h2");
+        if (!board || !h2) continue;
+        const title = board.title || board.id;
+        if (h2.textContent === title) continue;
+        h2.textContent = title;
+        card.dataset.search = (board.id + " " + title).toLowerCase();
+        const shot = card.querySelector("a.shot");
+        if (shot) shot.setAttribute("aria-label", "เปิด " + title);
+        for (const control of card.querySelectorAll(".actions a, .actions button")) {
+          if (control.classList.contains("del")) control.setAttribute("aria-label", "ลบ " + title);
+          else if (control.hasAttribute("download")) control.setAttribute("aria-label", "ดาวน์โหลด " + title);
+        }
+      }
       const known = new Set([...grid.querySelectorAll(".card")].map((c) => c.dataset.slug));
       let added = 0;
       for (const board of boards) {
@@ -604,17 +633,17 @@ ${cards}
         card.innerHTML =
           '<a class="shot" href="' + href + '"><span class="placeholder">บันทึกบนเซิร์ฟเวอร์</span></a>' +
           '<div class="body"><h2></h2><p class="meta"></p><div class="actions">' +
-          '<a class="primary" href="' + href + '">เปิด</a>' +
-          '<a class="ghost" download>ดาวน์โหลด</a>' +
-          '<button class="del" type="button">ลบ</button>' +
-          '<span class="path"></span></div></div>';
+          '<a class="primary" href="' + href + '">เปิด</a><span class="grow"></span>' +
+          '<a class="iconbtn" download aria-label="ดาวน์โหลด" title="ดาวน์โหลด">' + ICONS.download + '</a>' +
+          '<button class="iconbtn danger del" type="button" aria-label="ลบกระดาน" title="ลบ">' +
+          ICONS.trash + '<span>ลบ</span></button></div></div>';
         card.querySelector(".del").dataset.id = board.id;
         card.querySelector("h2").textContent = board.title || board.id;
         card.querySelector(".meta").textContent =
           (board.elements ?? "?") + " elements · " + fmtSize(board.bytes) + " · " +
           new Date(board.updated).toLocaleDateString("en-GB");
-        card.querySelector(".ghost").href = "/scenes/" + encodeURIComponent(board.id) + ".excalidraw";
-        card.querySelector(".path").textContent = "/scenes/" + board.id + ".excalidraw";
+        card.querySelector("a.iconbtn").href = "/scenes/" + encodeURIComponent(board.id) + ".excalidraw";
+        card.querySelector(".del").setAttribute("aria-label", "ลบ " + (board.title || board.id));
         grid.appendChild(card);
         added += 1;
       }

@@ -205,6 +205,83 @@ function withBoardLock(id, fn) {
   return next;
 }
 
+/* --------------------------------------------------------------------- meta */
+
+/*
+ * `gallery/scenes/<id>.meta.json` is an optional sidecar: { title, subtitle, tags }.
+ * It holds the board's display name while the scene file stays a pure Excalidraw
+ * document. Missing, empty or broken sidecars all read as "no metadata".
+ */
+
+const META_TITLE_MAX = 120;
+
+async function readMeta(id) {
+  try {
+    const parsed = JSON.parse(await readFile(metaPath(id), "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Public shape: the title always exists (falls back to the board id). */
+function metaView(id, meta) {
+  return {
+    id,
+    title: typeof meta?.title === "string" && meta.title ? meta.title : id,
+    subtitle: typeof meta?.subtitle === "string" ? meta.subtitle : "",
+    tags: Array.isArray(meta?.tags) ? meta.tags.map(String) : [],
+  };
+}
+
+async function apiMetaGet(res, id) {
+  if (!(await fileExists(scenePath(id)))) return fail(res, 404, `board not found: ${id}`);
+  json(res, 200, metaView(id, await readMeta(id)));
+}
+
+async function apiMetaPatch(res, req, id) {
+  if (!(await fileExists(scenePath(id)))) return fail(res, 404, `board not found: ${id}`);
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return fail(res, 400, "body is not valid JSON");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return fail(res, 400, "expected a JSON object");
+  }
+  if (typeof body.title !== "string") return fail(res, 400, 'expected "title" to be a string');
+
+  const title = body.title.trim();
+  if ([...title].length > META_TITLE_MAX) {
+    return fail(res, 400, `title is longer than ${META_TITLE_MAX} characters`);
+  }
+
+  // read-modify-write under the board lock so a rename cannot race a scene save
+  const meta = await withBoardLock(id, async () => {
+    const current = await readMeta(id);
+    const next = {};
+    if (title) next.title = title;
+    if (typeof current.subtitle === "string" && current.subtitle) next.subtitle = current.subtitle;
+    if (Array.isArray(current.tags) && current.tags.length) next.tags = current.tags;
+
+    if (Object.keys(next).length) {
+      await mkdir(DATA_DIR, { recursive: true });
+      await writeAtomic(metaPath(id), `${JSON.stringify(next, null, 2)}\n`);
+    } else {
+      // nothing custom left: delete the sidecar instead of leaving `{}` behind
+      await unlink(metaPath(id)).catch(() => {});
+    }
+    return next;
+  });
+
+  const view = metaView(id, meta);
+  broadcast(id, { type: "meta", ...view });
+  log("meta", id, view.title);
+  json(res, 200, view);
+}
+
 /* --------------------------------------------------------------------- api */
 
 async function apiList(res) {
@@ -332,6 +409,18 @@ const rooms = new Map(); // boardId -> Set<ws>
 const saveQueue = new Map(); // boardId -> {scene, timer, waiters}
 const PEER_COLORS = ["#7c8cff", "#ff8a5c", "#3ecf8e", "#f5c451", "#ff6b9d", "#5cc8ff", "#b18cff"];
 
+// A tab keeps one id in sessionStorage, so a reload can replace its own old
+// socket instead of looking like a second person. Malformed ids are ignored.
+const SID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+// A browser that vanishes without closing its socket (sleep, lost Wi-Fi,
+// Tailscale drop) never sends a close frame, so the only way to keep the
+// presence honest is to ping and drop whatever stops answering.
+const HEARTBEAT_MS = (() => {
+  const raw = Number(process.env.HEARTBEAT_MS);
+  return Number.isFinite(raw) && raw >= 100 ? raw : 30_000;
+})();
+
 const roomOf = (id) => {
   let room = rooms.get(id);
   if (!room) rooms.set(id, (room = new Set()));
@@ -383,10 +472,35 @@ const live = new WebSocketServer({ noServer: true, maxPayload: MAX_BODY });
 live.on("connection", (ws, request, id) => {
   if (!rooms.has(id)) roomOf(id);
   const room = roomOf(id);
-  const taken = new Set([...room].map((c) => c.peerId));
+  const params = new URL(request.url, "http://x").searchParams;
+  const sidParam = String(params.get("sid") || "");
+  ws.peerSid = SID_RE.test(sidParam) ? sidParam : null;
+  ws.peerName = String(params.get("name") || "").slice(0, 40) || "ไม่ระบุชื่อ";
+
+  // the same tab reconnecting (reload, network blip) takes its old slot back:
+  // dropping the previous socket keeps one person at one place in the room
+  if (ws.peerSid) {
+    for (const other of room) {
+      if (other === ws || other.peerSid !== ws.peerSid) continue;
+      other.replaced = true;
+      room.delete(other);
+      try {
+        other.send(JSON.stringify({ type: "replaced" }));
+        other.close(4001, "replaced");
+      } catch {
+        /* already gone */
+      }
+      setTimeout(() => other.terminate(), 1_000).unref?.();
+    }
+  }
+
+  const taken = new Set([...room].map((c) => c.peerColor));
   ws.peerId = `p${Math.random().toString(36).slice(2, 9)}`;
-  ws.peerName = String(new URL(request.url, "http://x").searchParams.get("name") || "").slice(0, 40) || "ไม่ระบุชื่อ";
   ws.peerColor = PEER_COLORS.find((c) => !taken.has(c)) || PEER_COLORS[room.size % PEER_COLORS.length];
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
   room.add(ws);
 
   const send = (message) => ws.readyState === 1 && ws.send(JSON.stringify(message));
@@ -420,12 +534,36 @@ live.on("connection", (ws, request, id) => {
   });
 
   ws.on("close", () => {
+    // a replaced socket already left the room and its replacement announced
+    // the new presence — saying it again would only repeat the same frame
+    if (ws.replaced) return;
     room.delete(ws);
     if (!room.size) rooms.delete(id);
     announce(id);
   });
   ws.on("error", () => {});
 });
+
+/* One sweeper for every room: a socket that still has not answered the previous
+ * ping is gone as far as anyone can tell, so it leaves the presence right now
+ * instead of lingering until the OS notices the dead connection. */
+const heartbeat = setInterval(() => {
+  for (const room of rooms.values()) {
+    for (const ws of room) {
+      if (ws.isAlive === false) {
+        ws.terminate();
+        continue;
+      }
+      ws.isAlive = false;
+      try {
+        ws.ping();
+      } catch {
+        ws.terminate();
+      }
+    }
+  }
+}, HEARTBEAT_MS);
+heartbeat.unref?.();
 
 /* ------------------------------------------------------------------ routing */
 
@@ -441,6 +579,15 @@ const server = createServer(async (req, res) => {
     if (path === "/api/boards") {
       if (method === "GET") return await apiList(res);
       if (method === "POST") return await apiCreate(res, req);
+      return fail(res, 405, "method not allowed");
+    }
+
+    const metaMatch = path.match(/^\/api\/boards\/([^/]+)\/meta$/);
+    if (metaMatch) {
+      const id = metaMatch[1];
+      if (!ID_RE.test(id)) return fail(res, 400, "invalid board id");
+      if (method === "GET") return await apiMetaGet(res, id);
+      if (method === "PATCH") return await apiMetaPatch(res, req, id);
       return fail(res, 405, "method not allowed");
     }
 

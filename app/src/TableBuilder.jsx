@@ -84,9 +84,21 @@ export default function TableBuilder({ open, onClose, onInsert, selected, onUpda
   return (
     <aside className={`panel${open ? " open" : ""}`} aria-hidden={!open}>
       <div className="panel-head">
-        <strong>สร้างตาราง</strong>
-        <button type="button" className="btn ghost small" onClick={onClose} aria-label="ปิด">
-          ✕
+        <span className="panel-title">ตาราง</span>
+        <button type="button" className="icon-btn" onClick={onClose} aria-label="ปิด" title="ปิด">
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
         </button>
       </div>
 

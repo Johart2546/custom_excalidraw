@@ -1,14 +1,20 @@
 :root {
-  color-scheme: dark;
-  --bg: #16181d;
-  --panel: #1f232b;
-  --line: #2c313b;
-  --ink: #e9ecef;
-  --muted: #99a1ab;
+  color-scheme: light;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --panel: #ffffff;
+  --line: #e4e4e7;
+  --ink: #1b1b1f;
+  --muted: #6f6f78;
   --accent: #6965db;
-  --ok: #40c057;
-  --bad: #ff6b6b;
+  --accent-soft: #ecebfb;
+  --ok: #17915a;
+  --bad: #cf3b3b;
+  --warn: #a86400;
+  --bar-h: 48px;
+  --radius: 8px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", sans-serif;
+  font-size: 13px;
 }
 
 * {
@@ -39,11 +45,12 @@ body {
 .bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  gap: 6px;
   flex: 0 0 auto;
+  height: var(--bar-h);
+  padding: 0 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
 
@@ -51,100 +58,210 @@ body {
   flex: 1;
 }
 
-.board-id {
+/* icon-only button: back, copy link, download, panel close */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
   color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  max-width: 42vw;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.icon-btn:hover {
+  background: #f4f4f5;
+  color: var(--ink);
+}
+.icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.icon-btn.ok {
+  color: var(--ok);
+}
+
+/* --------------------------------------------------------------- board title */
+
+.title-slot {
+  min-width: 0;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  margin-left: 2px;
+}
+
+.title-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(52vw, 460px);
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 550;
+  cursor: text;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+.title-btn:hover {
+  background: #f4f4f5;
+  border-color: var(--line);
+}
+.title-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.title-btn svg {
+  flex: none;
+  opacity: 0;
+  color: var(--muted);
+  transition: opacity 0.12s ease;
+}
+.title-btn:hover svg,
+.title-btn:focus-visible svg {
+  opacity: 1;
+}
+
+.title-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.save {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  color: var(--muted);
-}
-.save.saved {
-  color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
-}
-.save.dirty,
-.save.saving {
-  color: #ffd43b;
-  border-color: color-mix(in srgb, #ffd43b 45%, transparent);
-}
-.save.error {
-  color: var(--bad);
-  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+.title-input {
+  width: min(52vw, 460px);
+  padding: 5px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 550;
+  outline: none;
 }
 
-/* presence: who else has this board open right now */
+.title-error {
+  flex: none;
+  color: var(--bad);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- save status */
+
+.save,
 .live {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: none;
+  padding: 0 4px;
   font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
   color: var(--muted);
-  max-width: 34vw;
-  overflow: hidden;
   white-space: nowrap;
 }
+
+.save i,
 .live i {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: #6b6b75;
+  background: #b9b9c0;
   flex: none;
 }
-.live.open {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
-}
-.live.open i {
-  animation: pulse 2.4s ease-in-out infinite;
-}
-.live em {
-  font-style: normal;
+
+.save.idle,
+.save.saved {
   color: var(--muted);
-  text-overflow: ellipsis;
-  overflow: hidden;
+}
+.save.idle i {
+  background: #b9b9c0;
+}
+.save.saved i {
+  background: var(--ok);
+}
+.save.dirty,
+.save.saving {
+  color: var(--warn);
+}
+.save.dirty i,
+.save.saving i {
+  background: var(--warn);
+}
+.save.saving i {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.save.error {
+  color: var(--bad);
+}
+.save.error i {
+  background: var(--bad);
+}
+
+/* presence: how many people have this board open right now */
+.live.open {
+  color: var(--ink);
+}
+.live.connecting i {
+  background: #b9b9c0;
+  animation: pulse 1.6s ease-in-out infinite;
 }
 .live.closed {
   color: var(--bad);
-  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
 }
+.live.closed i {
+  background: var(--bad);
+}
+
 @keyframes pulse {
   0%,
   100% {
     opacity: 1;
   }
   50% {
-    opacity: 0.35;
+    opacity: 0.3;
   }
 }
+
+/* ------------------------------------------------------------------ buttons */
 
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 12px;
-  border-radius: 8px;
+  padding: 6px 11px;
+  border-radius: 7px;
   border: 1px solid var(--line);
-  background: #2a2f39;
+  background: #ffffff;
   color: var(--ink);
-  font-size: 13px;
+  font: inherit;
+  font-size: 12.5px;
   text-decoration: none;
   cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
 }
 .btn:hover {
-  background: #333945;
+  background: #f4f4f5;
+}
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .btn.ghost {
   background: transparent;
@@ -155,21 +272,28 @@ body {
   color: #fff;
 }
 .btn.primary:hover {
-  filter: brightness(1.1);
+  background: #5a56d0;
 }
 .btn.active {
-  background: var(--accent);
+  background: var(--accent-soft);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent);
 }
 .btn.small {
-  padding: 2px 8px;
+  padding: 4px 9px;
   font-size: 12px;
 }
 .btn.wide {
   width: 100%;
   justify-content: center;
-  padding: 9px 12px;
+  padding: 8px 12px;
+}
+
+.table-btn {
+  flex: none;
+  height: 30px;
+  padding: 0 10px;
+  margin-left: 2px;
 }
 
 /* ------------------------------------------------------------------- canvas */
@@ -180,40 +304,43 @@ body {
   min-height: 0;
 }
 
-/* keeps the drawing area clear of the side panel when it is open */
-.shell.panel-open .canvas .excalidraw__canvas {
-  /* no-op hook: the panel floats above the canvas in dark mode */
-}
-
 /* -------------------------------------------------------------------- panel */
 
 .panel {
   position: fixed;
-  top: 49px;
+  top: var(--bar-h);
   right: 0;
   bottom: 0;
-  width: 340px;
-  max-width: 92vw;
+  width: 320px;
   display: flex;
   flex-direction: column;
   background: var(--panel);
   border-left: 1px solid var(--line);
-  box-shadow: -18px 0 40px rgba(0, 0, 0, 0.35);
-  transform: translateX(102%);
-  transition: transform 0.18s ease;
+  transform: translateX(101%);
+  transition: transform 0.16s ease;
   z-index: 40;
 }
 .panel.open {
   transform: translateX(0);
+  box-shadow: -8px 0 24px rgba(24, 24, 27, 0.08);
 }
 
 .panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  gap: 8px;
+  flex: none;
+  height: 44px;
+  padding: 0 8px 0 14px;
   border-bottom: 1px solid var(--line);
-  font-size: 14px;
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink);
 }
 
 .panel-body {
@@ -221,29 +348,49 @@ body {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 11px;
 }
 
 .panel label {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  font-size: 12px;
+  gap: 4px;
+  font-size: 11.5px;
   color: var(--muted);
 }
 
 .panel input[type="text"],
 .panel input:not([type]),
+.panel input[type="number"],
 .panel textarea,
 .panel select {
   width: 100%;
-  padding: 7px 9px;
-  border-radius: 8px;
+  padding: 6px 8px;
+  border-radius: 7px;
   border: 1px solid var(--line);
-  background: #171a20;
+  background: #ffffff;
   color: var(--ink);
-  font-size: 13px;
-  font-family: inherit;
+  font: inherit;
+  font-size: 12.5px;
+}
+.panel input:focus,
+.panel select:focus,
+.panel textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.panel select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) calc(50% + 1px),
+    calc(100% - 9px) calc(50% + 1px);
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 26px;
 }
 
 .panel textarea {
@@ -255,7 +402,7 @@ body {
 
 .panel .row {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: flex-end;
 }
 .panel .grow {
@@ -264,14 +411,34 @@ body {
 .panel .check {
   flex-direction: row;
   align-items: center;
-  gap: 7px;
-  padding-bottom: 8px;
+  gap: 6px;
+  padding-bottom: 6px;
   color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.panel .check input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.selected-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8f8f9;
+}
+.selected-grid .row {
+  gap: 8px;
 }
 
 .hint {
   margin: 0;
-  font-size: 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
@@ -289,16 +456,20 @@ body {
 /* -------------------------------------------------------------------- fatal */
 
 .fatal {
-  max-width: 560px;
+  max-width: 520px;
   margin: 18vh auto;
   padding: 0 24px;
   text-align: center;
 }
 .fatal h1 {
-  font-size: 20px;
+  font-size: 19px;
+  font-weight: 600;
 }
 .fatal p {
   color: var(--muted);
+}
+.fatal .btn {
+  margin-top: 6px;
 }
 .fatal.loading {
   color: var(--muted);
@@ -307,8 +478,34 @@ body {
 }
 
 code {
-  background: #171a20;
+  background: #f4f4f5;
   padding: 1px 5px;
   border-radius: 4px;
   font-size: 11px;
+}
+
+@media (max-width: 560px) {
+  .panel {
+    width: min(340px, 100vw);
+  }
+  /* the bar has to give way: the title shrinks, the table button drops its label */
+  .title-slot {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .title-btn,
+  .title-input {
+    width: 100%;
+    max-width: none;
+  }
+  .table-btn span {
+    display: none;
+  }
+  .table-btn {
+    width: 30px;
+    padding: 0;
+  }
+  .save {
+    padding: 0 2px;
+  }
 }
