@@ -581,7 +581,17 @@ ${cards}
   fetch("/api/boards")
     .then((res) => (res.ok ? res.json() : null))
     .then((data) => {
-      const boards = (data && data.boards) || [];
+      if (!data || !Array.isArray(data.boards)) return;
+      const boards = data.boards;
+      const alive = new Set(boards.map((board) => board.id));
+      // The page is a snapshot: a board deleted after the last build must not
+      // stay clickable here until someone rebuilds the catalog.
+      let removed = 0;
+      for (const card of grid.querySelectorAll(".card")) {
+        if (alive.has(card.dataset.slug)) continue;
+        card.remove();
+        removed += 1;
+      }
       const known = new Set([...grid.querySelectorAll(".card")].map((c) => c.dataset.slug));
       let added = 0;
       for (const board of boards) {
@@ -608,7 +618,7 @@ ${cards}
         grid.appendChild(card);
         added += 1;
       }
-      if (added) applyFilter();
+      if (added || removed) applyFilter();
     })
     .catch(() => {});
 
