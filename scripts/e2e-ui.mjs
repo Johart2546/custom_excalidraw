@@ -409,6 +409,8 @@ async function saveTitleWith(trigger) {
     check("blur persists title", blurTitle.startsWith("ชื่อจาก Blur"), blurTitle);
     check("blur saved to API", (await metaTitle(BOARD)) === blurTitle, await metaTitle(BOARD));
 
+    const inertClosed = await cdp.evaluate(`document.querySelector(".panel").hasAttribute("inert")`);
+    check("closed table panel is inert", inertClosed === true, inertClosed);
     const beforeTable = await boardElementCount();
     await cdp.click(".table-btn");
     await cdp.waitFor(`document.querySelector(".panel")?.classList.contains("open")`, {
@@ -431,6 +433,7 @@ async function saveTitleWith(trigger) {
     })()`);
     check("table panel is a glass drawer", /blur/.test(panelGlass.blur || "") && /rgba\(255, 255, 255/.test(panelGlass.bg), `${panelGlass.blur} / ${panelGlass.bg}`);
     check("table panel is open for interaction", panelGlass.hidden === "false", panelGlass.hidden);
+    check("open table panel is not inert", (await cdp.evaluate(`document.querySelector(".panel").hasAttribute("inert")`)) === false);
     await cdp.click(".panel.open .panel-body > button.btn.wide");
     await cdp.waitFor(`/แทรกตารางแล้ว/.test(document.querySelector(".panel .note")?.textContent || "")`, {
       label: "table inserted",
