@@ -73,6 +73,12 @@ function humanize(slug) {
     .join(" ");
 }
 
+function formatDay(ms) {
+  const d = new Date(ms);
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
 function formatDate(ms) {
   const d = new Date(ms);
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -260,7 +266,7 @@ function renderPage(entries, generatedAt) {
         entry.frames ? `${entry.frames} frames` : null,
         entry.width ? `${entry.width}×${entry.height}` : null,
         `${entry.sizeLabel}`,
-        formatDate(entry.updated),
+        formatDay(entry.updated),
       ].filter(Boolean);
       return `      <article class="card" data-slug="${escapeHtml(entry.slug)}" data-search="${escapeHtml(
         `${entry.title} ${entry.subtitle} ${entry.slug}`.toLowerCase(),
@@ -269,7 +275,7 @@ function renderPage(entries, generatedAt) {
         <div class="body">
           <h2>${escapeHtml(entry.title)}</h2>
           ${entry.subtitle ? `<p class="sub">${escapeHtml(entry.subtitle)}</p>` : ""}
-          <p class="meta">${escapeHtml(bits.join(" · "))}</p>
+          <p class="meta" title="${escapeHtml(formatDate(entry.updated))}">${escapeHtml(bits.join(" · "))}</p>
           <div class="actions">
             <a class="primary" href="${href}">เปิด</a>
             <span class="grow"></span>
@@ -352,9 +358,8 @@ function renderPage(entries, generatedAt) {
   h2 { margin: 0; font-size: 14.5px; font-weight: 600; line-height: 1.35; }
   .sub { margin: 0; color: var(--muted); font-size: 12px; }
   .meta {
-    margin: 0; color: var(--muted); font-size: 11.5px;
-    font-variant-numeric: tabular-nums;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.45;
+    font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
   }
   .actions { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
   .primary {
@@ -641,7 +646,10 @@ ${cards}
         card.querySelector("h2").textContent = board.title || board.id;
         card.querySelector(".meta").textContent =
           (board.elements ?? "?") + " elements · " + fmtSize(board.bytes) + " · " +
-          new Date(board.updated).toLocaleDateString("en-GB");
+          new Date(board.updated).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+        card.querySelector(".meta").title = new Date(board.updated).toLocaleDateString("en-GB", {
+          day: "numeric", month: "short", year: "numeric",
+        });
         card.querySelector("a.iconbtn").href = "/scenes/" + encodeURIComponent(board.id) + ".excalidraw";
         card.querySelector(".del").setAttribute("aria-label", "ลบ " + (board.title || board.id));
         grid.appendChild(card);
