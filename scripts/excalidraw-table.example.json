@@ -1,0 +1,107 @@
+{
+  "columns": 3,
+  "defaults": { "color": "blue" },
+  "tables": [
+    {
+      "title": "inventory.item",
+      "color": "gray",
+      "columns": [
+        "Column",
+        { "header": "Type", "width": 132 },
+        { "header": "Key", "width": 96 }
+      ],
+      "rows": [
+        ["id", "uuid", "PK"],
+        ["sap_material_no", "varchar(18)", "UQ"],
+        ["item_code", "varchar(40)", "UQ"],
+        ["item_name", "varchar(200)", ""],
+        ["section_code", "varchar(8)", "SAP J / K"],
+        ["base_uom", "varchar(8)", ""],
+        ["stock_policy", "enum", "SUPPLY | DIRECT"],
+        ["is_active", "boolean", ""]
+      ]
+    },
+    {
+      "title": "inventory.lot",
+      "color": "green",
+      "subtitle": "1 lot = 1 receiving round",
+      "columns": [
+        "Column",
+        { "header": "Type", "width": 132 },
+        { "header": "Key", "width": 96 }
+      ],
+      "rows": [
+        ["id", "uuid", "PK"],
+        ["item_id", "uuid", "FK → item.id"],
+        ["gr_no", "varchar(24)", "UQ"],
+        ["received_at", "timestamptz", ""],
+        ["qty_received", "numeric(18,4)", ""],
+        ["expiry_date", "date", "null = none"],
+        ["unit_cost", "numeric(18,4)", ""]
+      ]
+    },
+    {
+      "title": "inventory.stock_balance",
+      "color": "yellow",
+      "mono": true,
+      "columns": [
+        { "header": "Column", "width": 150 },
+        { "header": "Type", "width": 130 },
+        { "header": "Key", "width": 92, "align": "center" }
+      ],
+      "rows": [
+        ["id", "uuid", "PK"],
+        ["item_id", "uuid", "FK"],
+        ["store_id", "uuid", "FK"],
+        ["department_id", "uuid", "FK?"],
+        ["lot_id", "uuid", "FK"],
+        ["qty_on_hand", "numeric(18,4)", ""],
+        ["last_movement_at", "timestamptz", ""]
+      ]
+    },
+    {
+      "title": "inventory.movement",
+      "color": "violet",
+      "columns": [
+        { "header": "Column", "width": 150 },
+        { "header": "Type", "width": 132 },
+        { "header": "Key", "width": 96 }
+      ],
+      "rows": [
+        ["id", "uuid", "PK"],
+        ["type", "enum", "GR | ISSUE | …"],
+        ["item_id", "uuid", "FK"],
+        ["lot_id", "uuid", "FK"],
+        ["from_location", "text", "free text today"],
+        ["to_location", "text", "free text today"],
+        ["qty", "numeric(18,4)", ""],
+        ["actor_user_id", "uuid", "FK"],
+        ["ref_document_id", "uuid", "FK"]
+      ]
+    },
+    {
+      "title": "Where the current schema falls short",
+      "color": "red",
+      "columns": [
+        { "header": "Gap", "width": 210 },
+        { "header": "Impact", "width": 300 }
+      ],
+      "rows": [
+        ["store.items has no SAP / GL / section", "master data cannot be reconciled with SAP"],
+        ["stock_balances keyed by item_id only", "one company-wide balance, no department or lot"],
+        ["no lot / expiry table", "cannot track expiry, FEFO or recall"],
+        ["location_from/to are free text", "no put-away accuracy, no bin-level count"],
+        ["purchase_orders.source_pr_document_id is unique", "1 PR = 1 PO, split PR impossible"]
+      ]
+    },
+    {
+      "title": "ตัวอย่างข้อความไทย",
+      "color": "cyan",
+      "columns": ["หัวข้อ", { "header": "รายละเอียด", "width": 260 }],
+      "rows": [
+        ["รับของเข้า", "1 lot = 1 รอบรับ และต้องมีเลขที่รับ (GR no) อ้างกลับไปยัง PO ได้"],
+        ["เบิกออก", "ตามแผนกผู้เบิก + ผู้อนุมัติ"]
+      ]
+    }
+  ]
+}

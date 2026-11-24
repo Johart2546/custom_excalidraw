@@ -1,0 +1,15 @@
+services:
+  boards:
+    build: ./app
+    image: excalidraw-boards:latest
+    container_name: excalidraw-boards
+    ports:
+      - "5001:5002"
+    volumes:
+      # boards are plain .excalidraw files, edited in place
+      - ./gallery/scenes:/data
+      # catalogue + previews, generated on the host by gallery/build.mjs
+      - ./gallery/site:/gallery:ro
+    # keep files on the host owned by you instead of root
+    user: "${DOCKER_UID:-501}:${DOCKER_GID:-20}"
+    restart: unless-stopped

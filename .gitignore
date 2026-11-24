@@ -1,0 +1,16 @@
+# generated catalog (rebuild with: node gallery/build.mjs)
+gallery/site/
+gallery/scenes/
+# scratch space for one-off renders and bundle dumps
+.cache/
+
+node_modules/
+.DS_Store
+
+# board edit history written by the server
+gallery/scenes/.history/
+
+# vite build output (rebuilt by the Dockerfile)
+app/dist/
+
+*.log
