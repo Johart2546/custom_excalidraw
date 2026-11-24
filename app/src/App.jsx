@@ -52,6 +52,11 @@ const IconCheck = () => (
     <path d="M20 6L9 17l-5-5" />
   </svg>
 );
+const IconX = () => (
+  <svg {...icon}>
+    <path d="M6 6l12 12M18 6L6 18" />
+  </svg>
+);
 const IconDownload = () => (
   <svg {...icon}>
     <path d="M12 4v11" />
@@ -810,7 +815,7 @@ export default function App() {
   const liveTitle = others.length ? others.map((p) => p.name).join(", ") : "ยังไม่มีคนอื่นเข้ามาในกระดานนี้";
 
   return (
-    <div className={`shell${panelOpen ? " panel-open" : ""}`}>
+    <div className={`shell${panelOpen ? " panel-open" : ""}${editingTitle ? " editing-title" : ""}`}>
       <header className="bar">
         <a className="icon-btn" href="/" aria-label="กลับไปหน้ารวมกระดาน" title="กลับไปหน้ารวมกระดาน">
           <IconBack />
@@ -818,29 +823,61 @@ export default function App() {
 
         <div className="title-slot">
           {editingTitle ? (
-            <input
-              ref={titleInputRef}
-              className="title-input"
-              value={titleDraft}
-              maxLength={120}
-              aria-label="ชื่อกระดาน"
-              spellCheck={false}
-              onChange={(event) => setTitleDraft(event.target.value)}
-              onBlur={() => {
-                if (editingTitleRef.current) void saveTitle(titleDraft);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  event.currentTarget.blur();
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  cancelTitleEdit();
-                }
-              }}
-            />
+            <>
+              <input
+                ref={titleInputRef}
+                className="title-input"
+                value={titleDraft}
+                maxLength={120}
+                aria-label="ชื่อกระดาน"
+                autoComplete="off"
+                spellCheck={false}
+                onPointerDown={(event) => event.stopPropagation()}
+                onChange={(event) => setTitleDraft(event.target.value)}
+                onBlur={() => {
+                  if (editingTitleRef.current) void saveTitle(titleDraft);
+                }}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.nativeEvent.isComposing) return;
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void saveTitle(titleDraft);
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelTitleEdit();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="icon-btn title-save"
+                aria-label="บันทึกชื่อกระดาน"
+                title="บันทึก (Enter)"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => void saveTitle(titleDraft)}
+              >
+                <IconCheck />
+              </button>
+              <button
+                type="button"
+                className="icon-btn title-cancel"
+                aria-label="ยกเลิกการแก้ชื่อ"
+                title="ยกเลิก (Esc)"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={cancelTitleEdit}
+              >
+                <IconX />
+              </button>
+            </>
           ) : (
-            <button type="button" className="title-btn" title={boardId} onClick={beginTitleEdit}>
+            <button
+              type="button"
+              className="title-btn"
+              title="คลิกเพื่อแก้ชื่อกระดาน"
+              aria-label={`แก้ชื่อกระดาน: ${title}`}
+              onClick={beginTitleEdit}
+            >
               <span className="title-text">{title}</span>
               <IconPencil />
             </button>
@@ -867,7 +904,7 @@ export default function App() {
 
         <button
           type="button"
-          className={`icon-btn${copied ? " ok" : ""}`}
+          className={`icon-btn bar-extra${copied ? " ok" : ""}`}
           onClick={copyLink}
           aria-label={copied ? "คัดลอกลิงก์แล้ว" : "คัดลอกลิงก์กระดานนี้"}
           title={copied ? "คัดลอกลิงก์แล้ว" : "คัดลอกลิงก์"}
@@ -876,7 +913,7 @@ export default function App() {
         </button>
 
         <a
-          className="icon-btn"
+          className="icon-btn bar-extra"
           href={`/scenes/${encodeURIComponent(boardId)}.excalidraw`}
           download
           aria-label="ดาวน์โหลดกระดาน"

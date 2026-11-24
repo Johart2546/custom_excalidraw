@@ -1,18 +1,24 @@
 :root {
   color-scheme: light;
-  --bg: #fafafa;
-  --surface: #ffffff;
-  --panel: #ffffff;
-  --line: #e4e4e7;
-  --ink: #1b1b1f;
-  --muted: #6f6f78;
-  --accent: #6965db;
-  --accent-soft: #ecebfb;
+  --bg: #eef1f8;
+  --surface: rgba(255, 255, 255, 0.58);
+  --panel: rgba(255, 255, 255, 0.66);
+  --line: rgba(24, 24, 39, 0.1);
+  --line-strong: rgba(24, 24, 39, 0.16);
+  --ink: #18181f;
+  --muted: #64646f;
+  --accent: #6360d9;
+  --accent-soft: rgba(99, 96, 217, 0.12);
   --ok: #17915a;
   --bad: #cf3b3b;
   --warn: #a86400;
-  --bar-h: 48px;
+  --bar-h: 46px;
   --radius: 8px;
+  --glass: rgba(255, 255, 255, 0.52);
+  --glass-strong: rgba(255, 255, 255, 0.74);
+  --glass-line: rgba(255, 255, 255, 0.78);
+  --blur: blur(20px) saturate(155%);
+  --shadow: 0 12px 36px rgba(31, 36, 71, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.72);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", sans-serif;
   font-size: 13px;
 }
@@ -29,7 +35,14 @@ body,
 }
 
 body {
-  background: var(--bg);
+  background:
+    radial-gradient(900px 700px at 6% -8%, rgba(139, 168, 255, 0.9) 0%, transparent 62%),
+    radial-gradient(820px 640px at 102% -2%, rgba(255, 148, 196, 0.78) 0%, transparent 60%),
+    radial-gradient(920px 760px at 52% 112%, rgba(121, 231, 195, 0.74) 0%, transparent 62%),
+    radial-gradient(760px 560px at 26% 48%, rgba(197, 212, 255, 0.58) 0%, transparent 72%),
+    radial-gradient(760px 560px at 78% 62%, rgba(255, 202, 228, 0.52) 0%, transparent 72%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--ink);
 }
 
@@ -43,14 +56,21 @@ body {
 /* ------------------------------------------------------------------ top bar */
 
 .bar {
+  position: relative;
+  z-index: 60;
   display: flex;
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
   height: var(--bar-h);
+  margin: 8px 10px 0;
   padding: 0 10px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.34));
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
   font-size: 13px;
 }
 
@@ -68,17 +88,19 @@ body {
   height: 30px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
   text-decoration: none;
   transition:
     background 0.12s ease,
-    color 0.12s ease;
+    color 0.12s ease,
+    box-shadow 0.12s ease;
 }
 .icon-btn:hover {
-  background: #f4f4f5;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: inset 0 0 0 1px var(--glass-line);
   color: var(--ink);
 }
 .icon-btn:focus-visible {
@@ -96,6 +118,7 @@ body {
   flex: 0 1 auto;
   display: flex;
   align-items: center;
+  gap: 3px;
   margin-left: 2px;
 }
 
@@ -104,21 +127,23 @@ body {
   align-items: center;
   gap: 6px;
   max-width: min(52vw, 460px);
-  padding: 5px 8px;
+  padding: 5px 9px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 9px;
   background: transparent;
   color: var(--ink);
   font: inherit;
   font-weight: 550;
-  cursor: text;
+  cursor: pointer;
   transition:
     background 0.12s ease,
-    border-color 0.12s ease;
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
 }
 .title-btn:hover {
-  background: #f4f4f5;
-  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.52);
+  border-color: var(--glass-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 .title-btn:focus-visible {
   outline: 2px solid var(--accent);
@@ -126,7 +151,7 @@ body {
 }
 .title-btn svg {
   flex: none;
-  opacity: 0;
+  opacity: 0.68;
   color: var(--muted);
   transition: opacity 0.12s ease;
 }
@@ -143,14 +168,28 @@ body {
 
 .title-input {
   width: min(52vw, 460px);
-  padding: 5px 8px;
+  min-width: 0;
+  padding: 5px 9px;
   border: 1px solid var(--accent);
-  border-radius: 7px;
-  background: #ffffff;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 0 0 3px rgba(99, 96, 217, 0.14);
   color: var(--ink);
   font: inherit;
   font-weight: 550;
   outline: none;
+}
+
+.title-save,
+.title-cancel {
+  width: 28px;
+  height: 28px;
+}
+.title-save {
+  color: var(--ok);
+}
+.title-cancel {
+  color: var(--muted);
 }
 
 .title-error {
@@ -244,9 +283,10 @@ body {
   justify-content: center;
   gap: 6px;
   padding: 6px 11px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid var(--glass-line);
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
   color: var(--ink);
   font: inherit;
   font-size: 12.5px;
@@ -254,10 +294,11 @@ body {
   cursor: pointer;
   transition:
     background 0.12s ease,
-    border-color 0.12s ease;
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
 }
 .btn:hover {
-  background: #f4f4f5;
+  background: rgba(255, 255, 255, 0.82);
 }
 .btn:focus-visible {
   outline: 2px solid var(--accent);
@@ -302,27 +343,52 @@ body {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  margin: 10px 14px 14px;
+  border: 1px solid var(--glass-line);
+  border-radius: 18px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow:
+    0 18px 48px rgba(31, 36, 71, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  isolation: isolate;
+}
+
+/* Excalidraw's own floating islands get the same frosted treatment */
+.canvas .excalidraw {
+  --island-bg-color: rgba(255, 255, 255, 0.72);
+  --popup-bg-color: rgba(255, 255, 255, 0.86);
+}
+.canvas .excalidraw .Island {
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  box-shadow: 0 8px 24px rgba(31, 36, 71, 0.1);
 }
 
 /* -------------------------------------------------------------------- panel */
 
 .panel {
   position: fixed;
-  top: var(--bar-h);
-  right: 0;
-  bottom: 0;
+  top: calc(var(--bar-h) + 16px);
+  right: 8px;
+  bottom: 8px;
   width: 320px;
   display: flex;
   flex-direction: column;
-  background: var(--panel);
-  border-left: 1px solid var(--line);
-  transform: translateX(101%);
-  transition: transform 0.16s ease;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.54));
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  transform: translateX(calc(100% + 18px));
+  transition: transform 0.18s ease;
   z-index: 40;
 }
 .panel.open {
   transform: translateX(0);
-  box-shadow: -8px 0 24px rgba(24, 24, 27, 0.08);
+  box-shadow: -10px 14px 42px rgba(31, 36, 71, 0.16), var(--shadow);
 }
 
 .panel-head {
@@ -366,9 +432,9 @@ body {
 .panel select {
   width: 100%;
   padding: 6px 8px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.66);
   color: var(--ink);
   font: inherit;
   font-size: 12.5px;
@@ -427,9 +493,10 @@ body {
   flex-direction: column;
   gap: 8px;
   padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #f8f8f9;
+  border: 1px solid var(--glass-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.48);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 .selected-grid .row {
   gap: 8px;
@@ -478,15 +545,35 @@ body {
 }
 
 code {
-  background: #f4f4f5;
+  background: rgba(24, 24, 39, 0.06);
   padding: 1px 5px;
   border-radius: 4px;
   font-size: 11px;
 }
 
-@media (max-width: 560px) {
+/* Browsers without backdrop blur still need an opaque-enough surface. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .bar,
   .panel {
-    width: min(340px, 100vw);
+    background: rgba(250, 251, 255, 0.96);
+  }
+  .canvas {
+    background: #fff;
+  }
+}
+
+@media (max-width: 560px) {
+  .bar {
+    gap: 3px;
+    margin: 6px 6px 0;
+    padding: 0 6px;
+  }
+  .panel {
+    width: calc(100vw - 16px);
+  }
+  .canvas {
+    margin: 6px 6px 6px;
+    border-radius: 13px;
   }
   /* the bar has to give way: the title shrinks, the table button drops its label */
   .title-slot {
@@ -497,6 +584,17 @@ code {
   .title-input {
     width: 100%;
     max-width: none;
+  }
+  .shell.editing-title .title-input {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
+  /* while typing a name, give the field the room instead of status chrome */
+  .shell.editing-title .bar-extra,
+  .shell.editing-title .save,
+  .shell.editing-title .live {
+    display: none;
   }
   .table-btn span {
     display: none;

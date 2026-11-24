@@ -56,7 +56,7 @@ scripts/excalidraw-table.mjs  # CLI สร้างตารางเป็น�
   1. copy ไฟล์เดิมไปเก็บที่ `gallery/scenes/.history/<id>/<เวลา ISO>.excalidraw` (เก็บ 20 เวอร์ชันล่าสุด)
   2. เขียนไฟล์ใหม่แบบ atomic (`.tmp-...` แล้ว rename) — ไฟล์ไม่พังถ้าเขียนค้าง
 - ปุ่ม `ดาวน์โหลด` ดึงไฟล์ดิบจาก `/scenes/<id>.excalidraw` เอาไปเปิดที่อื่นได้ทันที
-- หน้าตาเป็นธีมสว่างเป็นค่าเริ่มต้นทั้งหน้าแก้ไข ผืน canvas และ catalog (ไม่ตาม `prefers-color-scheme` ของเครื่อง) — กระดานที่บันทึก `appState.theme: "dark"` ไว้เองจะเปิดเป็นดาร์กตามที่เจ้าของตั้ง
+- หน้าตาเป็นธีมสว่างแบบ glass morphism (แถบเครื่องมือ/แผงตาราง/การ์ด catalog เป็นกระจกฝ้า) ทั้งหน้าแก้ไข ผืน canvas และ catalog (ไม่ตาม `prefers-color-scheme` ของเครื่อง) — กระดานที่บันทึก `appState.theme: "dark"` ไว้เองจะเปิดเป็นดาร์กตามที่เจ้าของตั้ง
 
 ## หลายคนแก้พร้อมกัน (realtime)
 
@@ -81,6 +81,8 @@ scripts/excalidraw-table.mjs  # CLI สร้างตารางเป็น�
 BASE=http://127.0.0.1:5001 node .cache/collab.mjs   # เปิด Chrome headless 2 ตัว แทรกตาราง + วาดพร้อมกัน แล้วเทียบผล
 node scripts/test-board-meta.mjs                    # meta API: ชื่อ, validation, broadcast
 node scripts/test-board-presence.mjs                # presence: sid เดียวกันแทนที่, heartbeat, reload ไม่เพิ่มแขก
+node scripts/e2e-ui.mjs                              # e2e ทั้งหน้า (ค่าเริ่มต้น http://127.0.0.1:5792)
+node scripts/e2e-ui.mjs http://127.0.0.1:5001        # e2e กับตัวที่ deploy จริง
 ```
 
 ## ตาราง (table builder)
@@ -135,9 +137,12 @@ node gallery/build.mjs --no-render # แค่สร้าง index.html (เร
 
 ## เปลี่ยนชื่อกระดาน
 
-ในหน้า editor คลิกที่ชื่อกระดานบนแถบด้านบน (หรือไอคอนดินสอ) → พิมพ์ชื่อใหม่ → `Enter` หรือคลิกที่อื่นเพื่อบันทึก, `Esc` เพื่อยกเลิก
+**ในหน้า editor:** คลิกที่ชื่อกระดาน (หรือไอคอนดินสอที่แสดงตลอด) → พิมพ์ชื่อใหม่ → กด `Enter` หรือปุ่ม ✓ เพื่อบันทึก, `Esc` หรือปุ่ม ✕ เพื่อยกเลิก; คลิกที่อื่นก็บันทึกให้เช่นกัน (สูงสุด 120 ตัวอักษร)
+
+**ในหน้า catalog:** กดปุ่ม `แก้ชื่อ` บนการ์ด → พิมพ์ชื่อใน dialog → `บันทึกชื่อ`; ชื่อว่างจะขึ้นเตือนและไม่บันทึก
+
 ชื่อถูกเก็บใน sidecar `gallery/scenes/<id>.meta.json` (คีย์ `title`) ไม่แตะไฟล์ scene — ล้างช่องให้ว่างแล้วบันทึก = กลับไปใช้ id เป็นชื่อ
-คนอื่นที่เปิดกระดานเดียวกันอยู่จะเห็นชื่อใหม่ทันทีผ่าน WebSocket (`{type:"meta"}`); หน้า catalog จะแสดงชื่อใหม่ทันทีเมื่อโหลดหน้าใหม่ (การ์ดที่ฝังมากับหน้าเว็บถูกอัปเดตจาก `/api/boards`) — ภาพตัวอย่างยังรอ `node gallery/build.mjs` รอบถัดไป
+คนอื่นที่เปิดกระดานเดียวกันอยู่จะเห็นชื่อใหม่ทันทีผ่าน WebSocket (`{type:"meta"}`); หน้า catalog อัปเดตการ์ดจาก `/api/boards` ทันทีที่โหลดหน้า (ไม่ต้อง build ใหม่) — ภาพตัวอย่างยังรอ `node gallery/build.mjs` รอบถัดไป
 
 ## ลบกระดาน
 

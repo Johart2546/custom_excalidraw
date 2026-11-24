@@ -253,6 +253,8 @@ function renderPage(entries, generatedAt) {
     '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4v11"/><path d="M7.5 11.5L12 16l4.5-4.5"/><path d="M5 20h14"/></svg>';
   const ICON_TRASH =
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/></svg>';
+  const ICON_PENCIL =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/></svg>';
 
   const cards = entries
     .map((entry) => {
@@ -279,6 +281,9 @@ function renderPage(entries, generatedAt) {
           <div class="actions">
             <a class="primary" href="${href}">เปิด</a>
             <span class="grow"></span>
+            <button class="iconbtn rename" type="button" data-id="${escapeHtml(
+              entry.slug,
+            )}" aria-label="แก้ชื่อ ${escapeHtml(entry.title)}" title="แก้ชื่อกระดาน">${ICON_PENCIL}<span>แก้ชื่อ</span></button>
             <a class="iconbtn" href="${download}" download aria-label="ดาวน์โหลด ${escapeHtml(
               entry.title,
             )}" title="ดาวน์โหลด">${ICON_DOWNLOAD}</a>
@@ -297,120 +302,178 @@ function renderPage(entries, generatedAt) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Excalidraw boards</title>
 <style>
   :root {
     color-scheme: light;
-    --bg: #fafafa;
-    --panel: #ffffff;
-    --line: #e4e4e7;
-    --ink: #1b1b1f;
-    --muted: #6f6f78;
-    --accent: #6965db;
-    --accent-soft: #ecebfb;
+    --bg: #eef1f8;
+    --panel: rgba(255, 255, 255, 0.56);
+    --panel-strong: rgba(255, 255, 255, 0.78);
+    --line: rgba(24, 24, 39, 0.1);
+    --line-strong: rgba(24, 24, 39, 0.16);
+    --glass-line: rgba(255, 255, 255, 0.8);
+    --ink: #18181f;
+    --muted: #64646f;
+    --accent: #6360d9;
+    --accent-soft: rgba(99, 96, 217, 0.12);
     --danger: #b42323;
     --danger-line: #e8c2c2;
+    --blur: blur(20px) saturate(155%);
+    --shadow: 0 12px 36px rgba(31, 36, 71, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.72);
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 26px 22px 44px;
-    background: var(--bg);
+    min-height: 100vh;
+    padding: 22px 22px 44px;
+    background:
+      radial-gradient(900px 700px at 6% -8%, rgba(139, 168, 255, 0.9) 0%, transparent 62%),
+      radial-gradient(820px 640px at 102% -2%, rgba(255, 148, 196, 0.78) 0%, transparent 60%),
+      radial-gradient(920px 760px at 52% 112%, rgba(121, 231, 195, 0.74) 0%, transparent 62%),
+      radial-gradient(760px 560px at 26% 48%, rgba(197, 212, 255, 0.58) 0%, transparent 72%),
+      radial-gradient(760px 560px at 78% 62%, rgba(255, 202, 228, 0.52) 0%, transparent 72%),
+      var(--bg);
+    background-attachment: fixed;
     color: var(--ink);
     font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", Inter, system-ui, sans-serif;
   }
-  header { max-width: 1180px; margin: 0 auto 18px; }
-  .top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-  h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.2px; }
+  header {
+    position: sticky; top: 12px; z-index: 20;
+    max-width: 1180px; margin: 0 auto 20px; padding: 9px 11px;
+    border: 1px solid var(--glass-line); border-radius: 16px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.32));
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+    box-shadow: var(--shadow);
+  }
+  .top { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+  h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.3px; }
   .count { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
   .grow { flex: 1; }
   input[type="search"] {
     width: 220px; max-width: 100%; padding: 7px 11px; font: inherit; font-size: 13px;
-    color: var(--ink); background: var(--panel);
-    border: 1px solid var(--line); border-radius: 7px; outline: none;
+    color: var(--ink); background: rgba(255, 255, 255, 0.6);
+    border: 1px solid var(--glass-line); border-radius: 9px; outline: none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
   }
   input[type="search"]::placeholder { color: var(--muted); }
-  input[type="search"]:focus { border-color: var(--accent); }
+  input[type="search"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 96, 217, 0.14); }
   .app-link {
     color: #fff; text-decoration: none; white-space: nowrap;
-    background: var(--accent); border: 1px solid var(--accent);
-    padding: 7px 12px; border-radius: 7px; font-size: 12.5px;
+    background: linear-gradient(180deg, #7673e3, var(--accent));
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 7px 12px; border-radius: 9px; font-size: 12.5px;
+    box-shadow: 0 6px 16px rgba(99, 96, 217, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.28);
   }
-  .app-link:hover { filter: brightness(.94); }
+  .app-link:hover { filter: brightness(.96); }
   .grid {
     max-width: 1180px; margin: 0 auto;
-    display: grid; gap: 14px;
+    display: grid; gap: 15px;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   }
   .card {
     display: flex; flex-direction: column; overflow: hidden;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 11px;
-    transition: border-color .14s ease, transform .14s ease;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.22));
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+    border: 1px solid var(--glass-line); border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(31, 36, 71, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    transition: border-color .14s ease, transform .14s ease, box-shadow .14s ease;
   }
-  .card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .card:hover {
+    border-color: color-mix(in srgb, var(--accent) 32%, var(--glass-line));
+    transform: translateY(-2px);
+    box-shadow: 0 18px 42px rgba(31, 36, 71, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  }
   .shot {
-    display: flex; align-items: center; justify-content: center;
-    aspect-ratio: 16 / 10; padding: 10px; background: #fff; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; text-decoration: none;
+    aspect-ratio: 16 / 10; padding: 10px; overflow: hidden;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.32));
+    border-bottom: 1px solid rgba(255, 255, 255, 0.6);
   }
   .shot img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
-  .placeholder { color: #a9a9b3; font-size: 12px; }
-  .body { display: flex; flex-direction: column; gap: 3px; padding: 11px 12px 12px; }
+  .placeholder { color: var(--muted); font-size: 12px; }
+  .body { display: flex; flex-direction: column; gap: 3px; padding: 12px 13px 13px; }
   h2 { margin: 0; font-size: 14.5px; font-weight: 600; line-height: 1.35; }
   .sub { margin: 0; color: var(--muted); font-size: 12px; }
   .meta {
     margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.45;
     font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
   }
-  .actions { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
+  .actions { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
   .primary {
     display: inline-flex; align-items: center; text-decoration: none;
-    background: var(--accent); color: #fff; font-size: 12.5px;
-    padding: 5px 12px; border-radius: 7px; border: 1px solid var(--accent);
+    background: linear-gradient(180deg, #7673e3, var(--accent));
+    color: #fff; font-size: 12.5px; padding: 5px 12px; border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.26);
+    box-shadow: 0 5px 14px rgba(99, 96, 217, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.26);
   }
-  .primary:hover { filter: brightness(.94); }
+  .primary:hover { filter: brightness(.96); }
+  button.primary { font: inherit; font-size: 12.5px; cursor: pointer; padding: 7px 13px; border-radius: 9px; }
   .iconbtn {
     display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-    height: 27px; padding: 0 7px; border-radius: 7px; cursor: pointer;
-    border: 1px solid var(--line); background: transparent; color: var(--muted);
+    height: 28px; padding: 0 7px; border-radius: 8px; cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.44);
+    color: var(--muted);
     font: inherit; font-size: 12px; text-decoration: none;
-    opacity: .78; transition: opacity .12s ease, border-color .12s ease, color .12s ease;
+    opacity: .84; transition: opacity .12s ease, border-color .12s ease, color .12s ease, background .12s ease;
   }
   .card:hover .iconbtn, .card:focus-within .iconbtn { opacity: 1; }
-  .iconbtn:hover { border-color: var(--accent); color: var(--ink); }
+  .iconbtn:hover { background: rgba(255, 255, 255, 0.78); border-color: var(--accent); color: var(--ink); }
   .iconbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; opacity: 1; }
-  .iconbtn.danger { color: var(--danger); border-color: var(--danger-line); }
-  .iconbtn.danger:hover { border-color: var(--danger); }
+  .iconbtn.rename span { display: inline; }
+  .iconbtn.danger { color: var(--danger); border-color: rgba(232, 194, 194, 0.9); background: rgba(255, 240, 240, 0.4); }
+  .iconbtn.danger:hover { border-color: var(--danger); background: rgba(255, 240, 240, 0.72); }
   .iconbtn:disabled { opacity: .4; cursor: default; }
   @media (hover: none) {
     .iconbtn { opacity: 1; }
   }
+  @media (max-width: 420px) {
+    .iconbtn.rename span, .iconbtn.danger span { display: none; }
+  }
   .modal {
     position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
-    background: rgba(24, 24, 27, .42); padding: 20px;
+    background: rgba(24, 28, 48, .26);
+    backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+    padding: 20px;
   }
   .modal[hidden] { display: none; }
   .modal-card {
-    width: min(400px, 100%); background: var(--panel); border: 1px solid var(--line);
-    border-radius: 12px; padding: 20px 20px 14px;
+    width: min(420px, 100%);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.7));
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+    border: 1px solid var(--glass-line); border-radius: 18px; padding: 20px 20px 15px;
+    box-shadow: 0 26px 70px rgba(24, 30, 60, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.8);
   }
-  .modal-card h2 { margin: 0 0 8px; font-size: 15.5px; }
+  .modal-card h2 { margin: 0 0 8px; font-size: 16px; }
   .modal-card p { margin: 0 0 16px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
   .modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
-  .ghost {
-    font: inherit; font-size: 12.5px; padding: 6px 12px; cursor: pointer;
-    border-radius: 7px; border: 1px solid var(--line); background: transparent; color: var(--ink);
+  .field { display: flex; flex-direction: column; gap: 6px; margin: 0 0 14px; }
+  .field span { font-size: 11.5px; color: var(--muted); }
+  .field input {
+    width: 100%; padding: 8px 10px; font: inherit; font-size: 13.5px;
+    color: var(--ink); background: rgba(255, 255, 255, 0.72);
+    border: 1px solid var(--line-strong); border-radius: 9px; outline: none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
   }
-  .ghost:hover { border-color: var(--accent); }
-  .modal-hint { margin: 12px 0 0; font-size: 11.5px; color: var(--muted); text-align: right; }
+  .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 96, 217, 0.14); }
+  .modal-note { margin: -4px 0 12px !important; font-size: 12px !important; color: var(--danger) !important; }
+  .ghost {
+    font: inherit; font-size: 12.5px; padding: 7px 12px; cursor: pointer;
+    border-radius: 9px; border: 1px solid var(--line-strong);
+    background: rgba(255, 255, 255, 0.48); color: var(--ink);
+  }
+  .ghost:hover { border-color: var(--accent); background: rgba(255, 255, 255, 0.76); }
+  .modal-hint { margin: 12px 0 0 !important; font-size: 11.5px !important; color: var(--muted) !important; text-align: right; }
   .holdbtn {
     position: relative; overflow: hidden; min-width: 168px; justify-content: center;
-    display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 7px;
-    border: 1px solid var(--danger-line); background: transparent; color: var(--danger);
+    display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 9px;
+    border: 1px solid var(--danger-line); background: rgba(255, 240, 240, 0.4); color: var(--danger);
     font: inherit; font-size: 12.5px; cursor: pointer; user-select: none; touch-action: none;
   }
   .holdbtn .fill {
     position: absolute; left: 0; top: 0; bottom: 0; width: 0; pointer-events: none;
-    background: rgba(255, 90, 90, .28);
+    background: rgba(255, 90, 90, .26);
   }
   .holdbtn .lbl { position: relative; }
   .holdbtn:disabled { cursor: default; }
@@ -418,6 +481,9 @@ function renderPage(entries, generatedAt) {
     max-width: 1180px; margin: 26px auto 0; color: var(--muted); font-size: 11px;
   }
   .empty { max-width: 1180px; margin: 38px auto; color: var(--muted); font-size: 13px; }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    header, .card, .modal-card { background: rgba(250, 251, 255, 0.96); }
+  }
 </style>
 </head>
 <body>
@@ -448,6 +514,21 @@ ${cards}
     <p class="modal-hint">กดปุ่มค้างไว้ประมาณ 1 วินาทีเพื่อยืนยัน</p>
   </div>
 </div>
+<div class="modal" id="rename-modal" hidden>
+  <form class="modal-card" id="rename-form" role="dialog" aria-modal="true" aria-labelledby="rename-title" novalidate>
+    <h2 id="rename-title">แก้ชื่อกระดาน</h2>
+    <p>ชื่อนี้จะแสดงในหน้ารวมและในหน้าแก้ไขทันที</p>
+    <label class="field" for="rename-input">
+      <span>ชื่อกระดาน</span>
+      <input id="rename-input" maxlength="120" autocomplete="off" spellcheck="false" required>
+    </label>
+    <p class="modal-note" id="rename-note" hidden></p>
+    <div class="modal-actions">
+      <button class="ghost" type="button" id="rename-cancel">ยกเลิก</button>
+      <button class="primary" type="submit" id="rename-save">บันทึกชื่อ</button>
+    </div>
+  </form>
+</div>
 <script>
   const q = document.getElementById("q");
   const grid = document.getElementById("grid");
@@ -457,6 +538,7 @@ ${cards}
   const ICONS = {
     download: ${JSON.stringify(ICON_DOWNLOAD)},
     trash: ${JSON.stringify(ICON_TRASH)},
+    pencil: ${JSON.stringify(ICON_PENCIL)},
   };
 
   function applyFilter() {
@@ -477,7 +559,132 @@ ${cards}
     return Math.round(bytes / 1024) + " KB";
   }
 
+  function cardFor(id) {
+    const safe = window.CSS && CSS.escape ? CSS.escape(id) : String(id).replace(/"/g, '\\\\"');
+    return grid.querySelector('[data-slug="' + safe + '"]');
+  }
+
+  // One place updates every place a board name appears on a card, so a rename
+  // in the editor, from this dialog, or from the API all converge on one name.
+  function updateCardTitle(card, id, title, subtitle) {
+    if (!card) return;
+    const name = title || id;
+    const sub = subtitle || "";
+    const h2 = card.querySelector("h2");
+    if (h2) h2.textContent = name;
+    card.dataset.search = (id + " " + name + " " + sub).toLowerCase();
+    const shot = card.querySelector("a.shot");
+    if (shot) shot.setAttribute("aria-label", "เปิด " + name);
+    const rename = card.querySelector(".rename");
+    if (rename) {
+      rename.dataset.id = id;
+      rename.setAttribute("aria-label", "แก้ชื่อ " + name);
+      rename.title = "แก้ชื่อกระดาน";
+    }
+    const del = card.querySelector(".del");
+    if (del) {
+      del.dataset.id = id;
+      del.setAttribute("aria-label", "ลบ " + name);
+    }
+    const download = card.querySelector(".actions a[download]");
+    if (download) download.setAttribute("aria-label", "ดาวน์โหลด " + name);
+  }
+
   q.addEventListener("input", applyFilter);
+
+  // rename a board from the catalogue: the same PATCH the editor uses
+  const renameModal = document.getElementById("rename-modal");
+  const renameForm = document.getElementById("rename-form");
+  const renameInput = document.getElementById("rename-input");
+  const renameNote = document.getElementById("rename-note");
+  const renameSave = document.getElementById("rename-save");
+  let renameId = null;
+  let renameBusy = false;
+
+  function openRename(id, title, trigger) {
+    if (!renameModal.hidden) return;
+    if (!modal.hidden && !deleting) closeDelete();
+    renameId = id;
+    renameBusy = false;
+    renameNote.hidden = true;
+    renameNote.textContent = "";
+    renameInput.value = title || id;
+    renameModal.hidden = false;
+    renameModal._trigger = trigger || null;
+    renameInput.focus();
+    renameInput.select();
+    // Some browsers need a frame before the input is focusable after [hidden] is removed.
+    requestAnimationFrame(() => {
+      if (document.activeElement !== renameInput) {
+        renameInput.focus();
+        renameInput.select();
+      }
+    });
+  }
+
+  function closeRename() {
+    if (renameBusy) return;
+    const trigger = renameModal._trigger;
+    renameModal.hidden = true;
+    renameModal._trigger = null;
+    renameId = null;
+    if (trigger && trigger.isConnected) trigger.focus();
+  }
+
+  function showRenameNote(text) {
+    renameNote.textContent = text;
+    renameNote.hidden = false;
+  }
+
+  renameForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (renameBusy || !renameId) return;
+    const id = renameId;
+    const next = renameInput.value.trim();
+    if (!next) {
+      showRenameNote("ชื่อต้องไม่ว่าง");
+      renameInput.focus();
+      return;
+    }
+    renameBusy = true;
+    renameSave.disabled = true;
+    renameSave.textContent = "กำลังบันทึก…";
+    renameNote.hidden = true;
+    fetch("/api/boards/" + encodeURIComponent(id) + "/meta", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: next }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        return res.json();
+      })
+      .then((meta) => {
+        const card = cardFor(id);
+        updateCardTitle(card, id, (meta && meta.title) || next, meta && meta.subtitle);
+        const trigger = renameModal._trigger;
+        renameBusy = false;
+        renameSave.disabled = false;
+        renameSave.textContent = "บันทึกชื่อ";
+        renameModal.hidden = true;
+        renameModal._trigger = null;
+        renameId = null;
+        if (trigger && trigger.isConnected) trigger.focus();
+        if (!card) applyFilter();
+      })
+      .catch((err) => {
+        renameBusy = false;
+        renameSave.disabled = false;
+        renameSave.textContent = "บันทึกชื่อ";
+        showRenameNote("บันทึกชื่อไม่สำเร็จ" + (err && err.message ? " (" + err.message + ")" : ""));
+        renameInput.focus();
+      });
+  });
+
+  document.getElementById("rename-cancel").addEventListener("click", closeRename);
+  renameModal.addEventListener("pointerdown", (event) => {
+    if (event.target === renameModal) closeRename();
+  });
 
   // delete a board from the catalogue: custom dialog + hold-to-confirm button
   const modal = document.getElementById("del-modal");
@@ -492,6 +699,7 @@ ${cards}
   let deleting = false;
 
   function openDelete(id) {
+    if (!renameModal.hidden && !renameBusy) closeRename();
     pendingId = id;
     deleting = false;
     detail.textContent = id + ".excalidraw จะถูกลบถาวรพร้อมประวัติเซฟย้อนหลัง กู้คืนไม่ได้";
@@ -567,6 +775,14 @@ ${cards}
   }
 
   grid.addEventListener("click", (event) => {
+    const rename = event.target.closest && event.target.closest(".rename");
+    if (rename && !rename.disabled) {
+      event.preventDefault();
+      const card = rename.closest(".card");
+      const h2 = card && card.querySelector("h2");
+      if (rename.dataset.id) openRename(rename.dataset.id, h2 ? h2.textContent : "", rename);
+      return;
+    }
     const btn = event.target.closest && event.target.closest(".del");
     if (!btn || btn.disabled) return;
     event.preventDefault();
@@ -579,7 +795,9 @@ ${cards}
     if (event.target === modal) closeDelete();
   });
   document.addEventListener("keydown", (event) => {
-    if (!modal.hidden && event.key === "Escape") closeDelete();
+    if (event.key !== "Escape") return;
+    if (!renameModal.hidden) closeRename();
+    else if (!modal.hidden) closeDelete();
   });
   holdBtn.addEventListener("pointerdown", startHold);
   holdBtn.addEventListener("pointerup", stopHold);
@@ -613,18 +831,8 @@ ${cards}
       const byId = new Map(boards.map((board) => [board.id, board]));
       for (const card of grid.querySelectorAll(".card")) {
         const board = byId.get(card.dataset.slug);
-        const h2 = card.querySelector("h2");
-        if (!board || !h2) continue;
-        const title = board.title || board.id;
-        if (h2.textContent === title) continue;
-        h2.textContent = title;
-        card.dataset.search = (board.id + " " + title).toLowerCase();
-        const shot = card.querySelector("a.shot");
-        if (shot) shot.setAttribute("aria-label", "เปิด " + title);
-        for (const control of card.querySelectorAll(".actions a, .actions button")) {
-          if (control.classList.contains("del")) control.setAttribute("aria-label", "ลบ " + title);
-          else if (control.hasAttribute("download")) control.setAttribute("aria-label", "ดาวน์โหลด " + title);
-        }
+        if (!board) continue;
+        updateCardTitle(card, board.id, board.title || board.id, board.subtitle || "");
       }
       const known = new Set([...grid.querySelectorAll(".card")].map((c) => c.dataset.slug));
       let added = 0;
@@ -639,10 +847,14 @@ ${cards}
           '<a class="shot" href="' + href + '"><span class="placeholder">บันทึกบนเซิร์ฟเวอร์</span></a>' +
           '<div class="body"><h2></h2><p class="meta"></p><div class="actions">' +
           '<a class="primary" href="' + href + '">เปิด</a><span class="grow"></span>' +
+          '<button class="iconbtn rename" type="button" aria-label="แก้ชื่อกระดาน" title="แก้ชื่อกระดาน">' +
+          ICONS.pencil + '<span>แก้ชื่อ</span></button>' +
           '<a class="iconbtn" download aria-label="ดาวน์โหลด" title="ดาวน์โหลด">' + ICONS.download + '</a>' +
           '<button class="iconbtn danger del" type="button" aria-label="ลบกระดาน" title="ลบ">' +
           ICONS.trash + '<span>ลบ</span></button></div></div>';
+        card.querySelector(".rename").dataset.id = board.id;
         card.querySelector(".del").dataset.id = board.id;
+        updateCardTitle(card, board.id, board.title || board.id, board.subtitle || "");
         card.querySelector("h2").textContent = board.title || board.id;
         card.querySelector(".meta").textContent =
           (board.elements ?? "?") + " elements · " + fmtSize(board.bytes) + " · " +

@@ -82,7 +82,7 @@ export default function TableBuilder({ open, onClose, onInsert, selected, onUpda
   };
 
   return (
-    <aside className={`panel${open ? " open" : ""}`} aria-hidden={!open}>
+    <aside className={`panel${open ? " open" : ""}`} aria-hidden={!open} inert={open ? undefined : ""}>
       <div className="panel-head">
         <span className="panel-title">ตาราง</span>
         <button type="button" className="icon-btn" onClick={onClose} aria-label="ปิด" title="ปิด">
