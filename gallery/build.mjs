@@ -606,7 +606,7 @@ ${cards}
           '<div class="body"><h2></h2><p class="meta"></p><div class="actions">' +
           '<a class="primary" href="' + href + '">เปิด</a>' +
           '<a class="ghost" download>ดาวน์โหลด</a>' +
-          '<button class="del" type="button"></button>' +
+          '<button class="del" type="button">ลบ</button>' +
           '<span class="path"></span></div></div>';
         card.querySelector(".del").dataset.id = board.id;
         card.querySelector("h2").textContent = board.title || board.id;
