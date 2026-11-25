@@ -378,6 +378,23 @@ async function saveTitleWith(trigger) {
       barRect.left >= 8 && barRect.top >= 8 && barRect.width < barRect.vw * 0.75 && barRect.right < barRect.vw - 8,
       JSON.stringify(barRect),
     );
+
+    const overlay = await cdp.evaluate(`(() => {
+      const bar = document.querySelector(".bar").getBoundingClientRect();
+      const canvas = document.querySelector(".canvas").getBoundingClientRect();
+      const menu = document.querySelector(".FixedSideContainer_side_top")?.getBoundingClientRect();
+      return { barBottom: bar.bottom, canvasTop: canvas.top, menuTop: menu ? menu.top : null };
+    })()`);
+    check(
+      "toolbar floats over the canvas",
+      overlay.canvasTop < overlay.barBottom - 8,
+      JSON.stringify(overlay),
+    );
+    check(
+      "floating toolbar clears the Excalidraw menu",
+      overlay.menuTop !== null && overlay.barBottom <= overlay.menuTop - 4,
+      JSON.stringify(overlay),
+    );
     check("rename pencil is visible", Number(editorGlass.pencilOpacity) >= 0.65, editorGlass.pencilOpacity);
 
     await cdp.click(".title-btn");
@@ -463,6 +480,21 @@ async function saveTitleWith(trigger) {
       title: document.querySelector(".title-btn .title-text").textContent,
     }))()`);
     check("mobile editor has no horizontal overflow", mobileBefore.overflow <= 1, JSON.stringify(mobileBefore));
+
+    const mobileOverlay = await cdp.evaluate(`(() => {
+      const bar = document.querySelector(".bar").getBoundingClientRect();
+      const canvas = document.querySelector(".canvas").getBoundingClientRect();
+      const menu = document.querySelector(".FixedSideContainer_side_top")?.getBoundingClientRect();
+      return { barBottom: bar.bottom, canvasTop: canvas.top, menuTop: menu ? menu.top : null };
+    })()`);
+    check(
+      "mobile toolbar floats over the canvas",
+      mobileOverlay.canvasTop < mobileOverlay.barBottom - 8 &&
+        mobileOverlay.menuTop !== null &&
+        mobileOverlay.barBottom <= mobileOverlay.menuTop - 4,
+      JSON.stringify(mobileOverlay),
+    );
+
     await cdp.click(".title-btn");
     await cdp.waitFor(`!!document.querySelector(".title-input")`, { label: "mobile rename" });
     const mobileInput = await cdp.evaluate(`(() => {
