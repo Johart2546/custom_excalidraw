@@ -507,7 +507,30 @@ export function fitFontSize(value, inner, prefer, fontFamily = FONT_SANS) {
   return size;
 }
 
-export function attachCellText(cell, value, { groupIds = [], customData } = {}) {
+/**
+ * Font size and wrapped lines for a value inside a box, both dimensions considered:
+ * shrink until the wrapped text is no taller than the box, and when even the
+ * smallest size cannot hold the whole value, keep the lines that fit and mark the
+ * cut — the untouched string stays in originalText, so editing brings it back.
+ */
+function fitTextToBox(value, maxWidth, maxHeight, prefer, fontFamily = FONT_SANS) {
+  const floor = 7;
+  let size = Math.max(floor, Math.min(20, Math.round(prefer) || CELL_FONT));
+  let lines = wrap(value, maxWidth, size, fontFamily);
+  while (size > floor && lines.length * size * LINE_HEIGHT > maxHeight) {
+    size -= 1;
+    lines = wrap(value, maxWidth, size, fontFamily);
+  }
+  const room = Math.max(1, Math.floor(maxHeight / (size * LINE_HEIGHT)));
+  if (lines.length > room) {
+    lines = lines.slice(0, room);
+    const last = lines[lines.length - 1];
+    lines[lines.length - 1] = last.length > 1 ? `${last.slice(0, -1)}…` : "…";
+  }
+  return { fontSize: size, lines };
+}
+
+export function attachCellText(cell, value, { groupIds = [], customData, id } = {}) {
   const padX = Math.min(CELL_PAD_X, Math.max(4, cell.width * 0.12));
   const innerWidth = Math.max(8, cell.width - padX * 2);
   const preferred = Math.max(8, Math.min(20, Math.round(cell.height * 0.36)));
@@ -515,6 +538,7 @@ export function attachCellText(cell, value, { groupIds = [], customData } = {}) 
   const inner = text(cell.x + padX, cell.y + cell.height / 2 - (fontSize * LINE_HEIGHT) / 2, value, fontSize, FONT_SANS, {
     roughness: 0,
     groupIds,
+    ...(id ? { id } : {}),
   });
   // text() hardcodes containerId/verticalAlign/autoResize — bind the cell by hand
   inner.containerId = cell.id;
@@ -529,16 +553,48 @@ export function attachCellText(cell, value, { groupIds = [], customData } = {}) 
 }
 
 /** Equal split, or the given sizes rescaled so they still sum to `total`. */
-function fitSizes(parts, count, total) {
+function fitSizes(parts, count, total, min = 1) {
   const equal = total / count;
   const usable =
     Array.isArray(parts) && parts.length === count
       ? parts.map((n) => (Number.isFinite(n) && n > 0 ? n : equal))
       : null;
-  if (!usable) return Array.from({ length: count }, () => equal);
-  const sum = usable.reduce((a, b) => a + b, 0);
-  if (!(sum > 0)) return Array.from({ length: count }, () => equal);
-  return usable.map((n) => (n / sum) * total);
+  const base = usable ?? Array.from({ length: count }, () => equal);
+  const sum = base.reduce((a, b) => a + b, 0);
+  const sizes = (!(sum > 0) ? base.map(() => 1) : base).map((n) => (n / (sum > 0 ? sum : count)) * total);
+  if (!(min > 0)) return sizes;
+
+  // Scale proportionally, then lift every track that fell under the minimum and
+  // take the difference back from the tracks that are still above it. Proportional
+  // scaling alone turns a 40px column into a 12px sliver when the total shrinks.
+  for (let pass = 0; pass < count; pass += 1) {
+    const small = [];
+    const big = [];
+    sizes.forEach((size, i) => {
+      if (size < min - 1e-6) small.push(i);
+      else big.push(i);
+    });
+    if (!small.length) break;
+    const deficit = small.reduce((acc, i) => acc + (min - sizes[i]), 0);
+    small.forEach((i) => {
+      sizes[i] = min;
+    });
+    if (!big.length) break;
+    const room = big.reduce((acc, i) => acc + (sizes[i] - min), 0);
+    if (!(room > 0)) break;
+    const take = Math.min(deficit, room);
+    big.forEach((i) => {
+      sizes[i] -= ((sizes[i] - min) / room) * take;
+    });
+  }
+  // rounding happens in edgesOf(); keep the sum exact here
+  const drift = total - sizes.reduce((a, b) => a + b, 0);
+  let widest = 0;
+  sizes.forEach((size, i) => {
+    if (size > sizes[widest]) widest = i;
+  });
+  sizes[widest] += drift;
+  return sizes;
 }
 
 /** Running edge offsets: cells tile exactly, no rounding gaps between columns. */
@@ -573,6 +629,7 @@ export function buildGrid({
   title,
   subtitle,
   gridId,
+  idPrefix,
   colWidths,
   rowHeights,
 } = {}) {
@@ -580,10 +637,17 @@ export function buildGrid({
   const meta = { grid: gid, color, headerRow };
   // one group for the whole grid: single click selects / drags the table as a unit
   const groupId = `g${gid}`;
+  // A rebuild of an existing grid can pin element ids to the grid id + slot, so
+  // the same cell keeps the same id when its size or position changes. Undo then
+  // moves cells around instead of swapping in a second generation of cells.
+  const pin = typeof idPrefix === "string" && idPrefix ? idPrefix : "";
+  const idFor = pin ? (key) => `${pin}-${key}` : () => nextId("rect"[0]);
   const cols = clampInt(columns, 1, 20, 3);
   const lines = clampInt(rows, 1, 50, 4);
-  const cardW = clampInt(width, 80, 4000, 520);
-  const cardH = clampInt(height, 40, 4000, 220);
+  // a track never goes below its minimum: a 9-column table cannot be 200px wide,
+  // it grows to 9 x 40 instead of turning every column into an unreadable sliver
+  const cardW = clampInt(Math.max(width, cols * GRID_MIN_COL_W), 80, 4000, 520);
+  const cardH = clampInt(Math.max(height, lines * GRID_MIN_ROW_H), 40, 4000, 220);
   const palette = PALETTE[color] ?? PALETTE.gray;
 
   const titleText = title ? String(title).trim() : "";
@@ -595,7 +659,11 @@ export function buildGrid({
 
   const elements = [];
   if (titleText) {
-    const head = text(0, 0, titleText, TITLE_FONT, FONT_SANS, { roughness: 0, groupIds: [groupId] });
+    const head = text(0, 0, titleText, TITLE_FONT, FONT_SANS, {
+      roughness: 0,
+      groupIds: [groupId],
+      ...(pin ? { id: idFor("title") } : {}),
+    });
     head.customData = { grid: gid, title: true };
     elements.push(head);
   }
@@ -604,6 +672,7 @@ export function buildGrid({
       strokeColor: MUTED,
       roughness: 0,
       groupIds: [groupId],
+      ...(pin ? { id: idFor("sub") } : {}),
     });
     sub.customData = { grid: gid, subtitle: true };
     elements.push(sub);
@@ -611,8 +680,8 @@ export function buildGrid({
 
   // sizes are optional: without them the grid is uniform, with them the shape
   // the user dragged out earlier survives a rebuild
-  const colEdges = edgesOf(fitSizes(colWidths, cols, cardW));
-  const rowEdges = edgesOf(fitSizes(rowHeights, lines, cardH));
+  const colEdges = edgesOf(fitSizes(colWidths, cols, cardW, GRID_MIN_COL_W));
+  const rowEdges = edgesOf(fitSizes(rowHeights, lines, cardH, GRID_MIN_ROW_H));
 
   for (let r = 0; r < lines; r += 1) {
     const header = headerRow && r === 0;
@@ -625,8 +694,12 @@ export function buildGrid({
         roughness: 0,
         strokeWidth: 1,
         groupIds: [groupId],
+        ...(pin ? { id: idFor(`r${r}c${c}`) } : {}),
       });
-      cell.customData = { ...meta, rows: lines, cols, r, c };
+      // cw/rh are the sizes this cell is *meant* to have: Excalidraw may grow a
+      // container to fit its text, and a table with one column has no sibling to
+      // compare against, so each cell remembers the tiling it was built with.
+      cell.customData = { ...meta, rows: lines, cols, r, c, cw: cell.width, rh: cell.height };
       elements.push(cell);
     }
   }
@@ -640,6 +713,163 @@ const GRID_MIN_ROW_H = 24;
 const GRID_MAX_ROW_H = 1200;
 const GRID_MIN_COL_W = 40;
 const GRID_MAX_COL_W = 1600;
+
+/**
+ * Cells built by this module remember the row height and column width they were
+ * created (or resized) with, so a single-cell table can be put back on its
+ * tiling even though it has no sibling to compare against.
+ */
+function remembersSize(cell) {
+  return Number(cell.customData?.rh) > 0 && Number(cell.customData?.cw) > 0;
+}
+
+/**
+ * The value a majority of `values` agree on (rounded to 0.01); the median when
+ * nothing has a majority. One mutant cell must not win against its siblings.
+ */
+function consensus(values) {
+  const counts = new Map();
+  for (const value of values) {
+    const key = Math.round(value * 100) / 100;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  let best = null;
+  let bestCount = 0;
+  for (const [value, count] of counts) {
+    if (count > bestCount) {
+      best = value;
+      bestCount = count;
+    }
+  }
+  const winners = [...counts].filter(([, count]) => count === bestCount);
+  return winners.length === 1 ? best : median;
+}
+
+/**
+ * Snap the cells of one grid back onto the tiling their siblings describe.
+ *
+ * Excalidraw grows a container when its bound text does not fit
+ * (`redrawTextBoundingBox` in excalidraw: `if (metrics.height > maxContainerHeight)
+ * mutateElement(container, { height: nextHeight })`), so typing a long value into
+ * a narrow cell inflates that one cell and its row stops lining up with the rest.
+ * Our table is the authority — a single cell growing is never intended — so the
+ * deviating cell is put back on the row/column edges the other cells agree on.
+ *
+ * Returns the repaired element array, or null when the grid already lines up.
+ */
+export function snapGridTracks(elements, gridId) {
+  const cells = gridCells(elements, gridId);
+  if (cells.length < 2 && !cells.every(remembersSize)) return null;
+
+  const rows = new Map();
+  const cols = new Map();
+  for (const cell of cells) {
+    const { r, c } = cell.customData;
+    if (!rows.has(r)) rows.set(r, []);
+    if (!cols.has(c)) cols.set(c, []);
+    rows.get(r).push(cell);
+    cols.get(c).push(cell);
+  }
+
+  // A track keeps what its cells were built with (or resized to by the sliders);
+  // only cells from older scenes, which carry no memory, fall back to agreement.
+  const trackSize = (group, key, measured) => {
+    const intent = group.map((cell) => Number(cell.customData?.[key]));
+    if (intent.length === group.length && intent.every((n) => Number.isFinite(n) && n > 0)) {
+      return consensus(intent);
+    }
+    return consensus(group.map((cell) => measured(cell)));
+  };
+
+  const top = Math.min(...cells.map((cell) => cell.y));
+  const left = Math.min(...cells.map((cell) => cell.x));
+  const rowTop = new Map();
+  const rowHeight = new Map();
+  let cursor = top;
+  for (const r of [...rows.keys()].sort((a, b) => a - b)) {
+    const height = trackSize(rows.get(r), "rh", (cell) => cell.height);
+    rowTop.set(r, cursor);
+    rowHeight.set(r, height);
+    cursor += height;
+  }
+  const colLeft = new Map();
+  const colWidth = new Map();
+  cursor = left;
+  for (const c of [...cols.keys()].sort((a, b) => a - b)) {
+    const width = trackSize(cols.get(c), "cw", (cell) => cell.width);
+    colLeft.set(c, cursor);
+    colWidth.set(c, width);
+    cursor += width;
+  }
+
+  let changed = false;
+  const out = (elements || []).map((el) => {
+    if (el.type !== "rectangle" || el.isDeleted || el.customData?.grid !== gridId) return el;
+    const { r, c } = el.customData;
+    const geometry = { x: colLeft.get(c), y: rowTop.get(r), width: colWidth.get(c), height: rowHeight.get(r) };
+    if (
+      Math.abs(el.x - geometry.x) < 0.5 &&
+      Math.abs(el.y - geometry.y) < 0.5 &&
+      Math.abs(el.width - geometry.width) < 0.5 &&
+      Math.abs(el.height - geometry.height) < 0.5
+    ) {
+      return el;
+    }
+    changed = true;
+    return { ...el, ...geometry };
+  });
+  return changed ? out : null;
+}
+
+/**
+ * Re-wrap / shrink the bound texts of one grid so each one stays inside its cell.
+ * Typing into Excalidraw grows the text to whatever the editor used, which spills
+ * out of a narrow or short cell; returns null when everything already fits.
+ */
+export function fitCellTexts(elements, gridId) {
+  const cells = gridCells(elements, gridId);
+  if (!cells.length) return null;
+  const box = new Map(cells.map((cell) => [cell.id, cell]));
+  let changed = false;
+  const out = (elements || []).map((el) => {
+    if (el.type !== "text" || el.isDeleted || !el.containerId) return el;
+    const cell = box.get(el.containerId);
+    if (!cell) return el;
+    const spills =
+      el.x < cell.x - 0.5 ||
+      el.y < cell.y - 0.5 ||
+      el.x + el.width > cell.x + cell.width + 0.5 ||
+      el.y + el.height > cell.y + cell.height + 0.5;
+    if (!spills) return el;
+    const next = refitCellText(el, cell, true);
+    if (
+      next.text !== el.text ||
+      next.fontSize !== el.fontSize ||
+      next.x !== el.x ||
+      next.y !== el.y ||
+      next.width !== el.width ||
+      next.height !== el.height
+    ) {
+      changed = true;
+      return next;
+    }
+    return el;
+  });
+  return changed ? out : null;
+}
+
+/**
+ * Bring a grid back to a consistent shape after anything touched it: first put
+ * every cell back on the tiling (a cell that Excalidraw grew for its text must
+ * not be allowed to warp its row), then shrink the texts into the restored
+ * boxes. Returns null when the grid was already consistent.
+ */
+export function healGrid(elements, gridId) {
+  const snapped = snapGridTracks(elements, gridId) ?? elements;
+  return fitCellTexts(snapped, gridId) ?? (snapped === elements ? null : snapped);
+}
 
 /** Rectangle cells of one grid, deleted ones excluded. */
 function gridCells(elements, gridId) {
@@ -698,8 +928,9 @@ function refitCellText(el, box, rewrap) {
   if (rewrap) {
     // the preferred size follows the cell height, so widening a column grows the text back
     const preferred = Math.max(8, Math.min(20, Math.round(box.height * 0.36)));
-    fontSize = fitFontSize(source, maxWidth, preferred, family);
-    const lines = wrap(source, maxWidth, fontSize, family);
+    const fitted = fitTextToBox(source, maxWidth, Math.max(8, box.height), preferred, family);
+    fontSize = fitted.fontSize;
+    const lines = fitted.lines;
     const widest = Math.max(...lines.map((line) => measure(line, fontSize, family)), 1);
     width = round(Math.min(maxWidth, widest));
     height = round(lines.length * fontSize * LINE_HEIGHT);
@@ -756,7 +987,16 @@ function resizeTrack(elements, gridId, { axis, index, size, min, max, rewrap = t
     const box = boxes.get(el.id);
     if (box) {
       changed += 1;
-      return { ...el, ...box, version: (el.version || 1) + 1, versionNonce: randInt(1e9), updated: now };
+      // the track that was resized remembers its new size; a shifted cell keeps its own
+      const moved = box.width !== el.width ? { cw: box.width } : box.height !== el.height ? { rh: box.height } : null;
+      return {
+        ...el,
+        ...box,
+        ...(moved && el.customData ? { customData: { ...el.customData, ...moved } } : {}),
+        version: (el.version || 1) + 1,
+        versionNonce: randInt(1e9),
+        updated: now,
+      };
     }
     if (!el.isDeleted && el.type === "text" && el.containerId && boxes.has(el.containerId)) {
       const cell = cellById.get(el.containerId);

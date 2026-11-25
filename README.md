@@ -73,6 +73,19 @@ node scripts/test-board-storage.mjs    # โครงสร้างโฟลเ
 node scripts/test-board-meta.mjs       # เปลี่ยนชื่อ/คำอธิบาย
 node scripts/test-board-presence.mjs   # presence, heartbeat
 node scripts/test-grid-resize.mjs      # ตาราง: ย่อ/ขยายแถวและคอลัมน์
+node scripts/soak-table.mjs --seed 1   # ตาราง: สุ่มแก้ตารางซ้ำ ๆ แล้วตรวจรูปทรงทุกก้าว
+```
+
+`soak-table.mjs` คือเทสต์แบบสุ่ม (property test) ของตาราง: เปิดกระดานใน headless Chrome
+แล้วสลับแก้จำนวนแถว/คอลัมน์, ความกว้างรวม, สี, หัวตาราง, ลากสไลเดอร์, พิมพ์ข้อความ,
+ย้ายตาราง, undo/redo, reload สลับกันตาม seed แล้วตรวจ invariant ทุกก้าว (ช่องต่อกันพอดี,
+พิกัด r/c ตรงกับ meta, ข้อความยังอยู่ในช่องของตัวเอง, ไม่มีช่องซ้ำ, undo คืนรูปเดิมได้)
+เจอปัญหาแรกเมื่อไหร่จะพิมพ์ op log, dump element ที่ผิด, แคปจอไปที่ `/tmp/table-soak/` แล้ว exit 1
+
+```bash
+node scripts/soak-table.mjs --seed 1 --ops 30   # ค่าเริ่มต้น: seed 1, 30 ก้าว
+node scripts/soak-table.mjs --seeds 1..8 --ops 40 --json   # หลาย seed, สรุปบรรทัดเดียว
+node scripts/soak-table.mjs --probe            # ไล่บั๊ก: รันสถานการณ์เล็ก ๆ แล้วพิมพ์รูปทรงทุกก้าว
 ```
 
 ถ้าแก้ UI ให้รัน e2e เพิ่ม (ต้องมีเซิร์ฟเวอร์ที่เสิร์ฟ build ล่าสุด + headless Chrome ในเครื่อง):
