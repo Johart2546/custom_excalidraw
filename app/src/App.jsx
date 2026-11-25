@@ -772,6 +772,16 @@ export default function App() {
     [boardId, flush],
   );
 
+  /* The board remembers the theme it was last saved in, so a flip has to reach
+     the scene; the localStorage copy only decides which page opens first. */
+  const toggleTheme = useCallback(() => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    const api = apiRef.current;
+    if (!api || goneRef.current) return;
+    queueSave(api.getSceneElements(), { ...api.getAppState(), theme: next }, api.getFiles());
+  }, [theme, queueSave]);
+
   /** Everything the table panel needs to know about one grid. */
   const describeGrid = useCallback((elements, gridId) => {
     const rects = elements.filter(
@@ -1355,7 +1365,7 @@ export default function App() {
     <button
       type="button"
       className="theme-toggle"
-      onClick={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
+      onClick={toggleTheme}
       aria-label={theme === "dark" ? "สลับเป็นโหมดสว่าง" : "สลับเป็นโหมดมืด"}
       aria-pressed={theme === "dark"}
       title={theme === "dark" ? "โหมดสว่าง" : "โหมดมืด"}

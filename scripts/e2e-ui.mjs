@@ -111,7 +111,8 @@ class CDP {
     let lastError = "";
     while (Date.now() < deadline) {
       try {
-        if (await this.evaluate(expression)) return true;
+        // awaitPromise lets a check poll the API, not just the DOM
+        if (await this.evaluate(expression, { awaitPromise: true })) return true;
       } catch (error) {
         lastError = error.message;
       }
@@ -661,6 +662,11 @@ async function openEditor() {
       themeDark.attr === "dark" && themeDark.app === "dark" && themeDark.canvas === "rgb(18, 18, 27)",
       JSON.stringify(themeDark),
     );
+    // the flip is saved with the scene, so let the debounce land before reloading
+    await cdp.waitFor(
+      `fetch("/api/boards/${BOARD}").then((r) => r.json()).then((b) => b.appState?.theme === "dark")`,
+      { label: "dark theme saved with the board" },
+    );
     await cdp.navigate(`${BASE}/b/${BOARD}`);
     await cdp.waitFor(`!!window.__boardsApi`, { label: "editor after theme reload" });
     await sleep(600);
@@ -955,7 +961,18 @@ async function openEditor() {
       };
     })()`);
     check("catalog has glass header", /blur/.test(catalogGlass.headerBlur || ""), catalogGlass.headerBlur);
-    check("catalog cards are frosted", /blur/.test(catalogGlass.cardBlur || "") && /rgba\(255, 255, 255/.test(catalogGlass.cardBg), `${catalogGlass.cardBlur} / ${catalogGlass.cardBg}`);
+    // the catalogue follows the saved theme, so frost means "blur + translucent gradient" in either palette
+    const cardAlpha = (() => {
+      const match = /rgba?\(([^)]+)\)/.exec(catalogGlass.cardBg || "");
+      if (!match) return null;
+      const parts = match[1].split(",").map((part) => Number.parseFloat(part));
+      return parts.length === 4 ? parts[3] : 1;
+    })();
+    check(
+      "catalog cards are frosted",
+      /blur/.test(catalogGlass.cardBlur || "") && cardAlpha !== null && cardAlpha < 0.9,
+      `${catalogGlass.cardBlur} / ${catalogGlass.cardBg}`,
+    );
     check("catalog background has glass mesh", catalogGlass.bodyMesh);
     check("catalog shows rename control", catalogGlass.renameVisible);
     check("catalog placeholder is not underlined", catalogGlass.shotDecoration === "none", catalogGlass.shotDecoration);
