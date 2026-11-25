@@ -58,19 +58,22 @@ body {
 .bar {
   position: relative;
   z-index: 60;
+  align-self: flex-start;
   display: flex;
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
+  width: max-content;
+  max-width: calc(100vw - 24px);
   height: var(--bar-h);
-  margin: 8px 10px 0;
-  padding: 0 10px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.34));
+  margin: 10px 12px 0;
+  padding: 0 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.38));
   backdrop-filter: var(--blur);
   -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--glass-line);
-  border-radius: 14px;
-  box-shadow: var(--shadow);
+  border-radius: 16px;
+  box-shadow: 0 14px 38px rgba(31, 36, 71, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.76);
   font-size: 13px;
 }
 
@@ -126,7 +129,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: min(52vw, 460px);
+  max-width: min(40vw, 340px);
   padding: 5px 9px;
   border: 1px solid transparent;
   border-radius: 9px;
@@ -193,7 +196,7 @@ body {
 }
 
 .title-input {
-  width: min(52vw, 460px);
+  width: min(40vw, 340px);
   min-width: 0;
   padding: 5px 9px;
   border: 1px solid var(--accent);
@@ -590,9 +593,13 @@ code {
 
 @media (max-width: 560px) {
   .bar {
+    align-self: stretch;
+    width: auto;
+    max-width: none;
     gap: 3px;
     margin: 6px 6px 0;
     padding: 0 6px;
+    border-radius: 14px;
   }
   .panel {
     width: calc(100vw - 16px);

@@ -368,6 +368,16 @@ async function saveTitleWith(trigger) {
       `${editorGlass.barBlur} / ${editorGlass.barBg}`,
     );
     check("canvas has rounded glass frame", editorGlass.canvasRadius === "18px", editorGlass.canvasRadius);
+
+    const barRect = await cdp.evaluate(`(() => {
+      const r = document.querySelector(".bar").getBoundingClientRect();
+      return { left: r.left, top: r.top, width: r.width, right: r.right, vw: innerWidth };
+    })()`);
+    check(
+      "editor top bar is a compact floating toolbar",
+      barRect.left >= 8 && barRect.top >= 8 && barRect.width < barRect.vw * 0.75 && barRect.right < barRect.vw - 8,
+      JSON.stringify(barRect),
+    );
     check("rename pencil is visible", Number(editorGlass.pencilOpacity) >= 0.65, editorGlass.pencilOpacity);
 
     await cdp.click(".title-btn");
