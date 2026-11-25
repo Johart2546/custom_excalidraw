@@ -307,7 +307,7 @@ async function readTitleText() {
 async function openEditor() {
   await cdp.navigate(`${BASE}/b/${BOARD}`);
   await cdp.waitFor(
-    `!!document.querySelector(".title-btn") && !!document.querySelector(".live")`,
+    `!!document.querySelector(".title-btn") && !!document.querySelector(".presence") && !!document.querySelector(".tools-table")`,
     { label: "editor ready" },
   );
 }
@@ -659,10 +659,62 @@ async function saveTitleWith(trigger) {
     check("blur persists title", blurTitle.startsWith("ชื่อจาก Blur"), blurTitle);
     check("blur saved to API", (await metaTitle(BOARD)) === blurTitle, await metaTitle(BOARD));
 
+    const tablePlacement = await cdp.evaluate(`(() => {
+      const table = document.querySelector(".tools-table");
+      const stack = document.querySelector(".App-toolbar .Stack_horizontal");
+      const tools = document.querySelector(".App-toolbar").getBoundingClientRect();
+      const native = document.querySelector(".App-toolbar .ToolIcon_size_medium")?.getBoundingClientRect();
+      const r = table ? table.getBoundingClientRect() : null;
+      return {
+        inStack: Boolean(stack && table && stack.contains(table)),
+        insideTools: Boolean(r && r.left >= tools.left - 1 && r.right <= tools.right + 1),
+        w: r ? r.width : null, h: r ? r.height : null,
+        nativeW: native ? native.width : null, nativeH: native ? native.height : null,
+        barHasTableButton: !!document.querySelector(".bar .table-btn"),
+        label: table ? table.getAttribute("aria-label") : null,
+      };
+    })()`);
+    check("table button moved into the drawing tools row", tablePlacement.inStack && tablePlacement.insideTools, JSON.stringify(tablePlacement));
+    check(
+      "table button matches the native tool size",
+      Math.abs((tablePlacement.w ?? 0) - (tablePlacement.nativeW ?? 29)) < 1.5 &&
+        Math.abs((tablePlacement.h ?? 0) - (tablePlacement.nativeH ?? 29)) < 1.5,
+      JSON.stringify(tablePlacement),
+    );
+    check("floating bar no longer carries a table button", tablePlacement.barHasTableButton === false, JSON.stringify(tablePlacement));
+
+    const presenceBox = await cdp.evaluate(`(() => {
+      const p = document.querySelector(".presence");
+      const r = p.getBoundingClientRect();
+      const bar = document.querySelector(".bar").getBoundingClientRect();
+      return {
+        cls: p.className,
+        fromRight: innerWidth - r.right, top: r.top, height: r.height, left: r.left,
+        avatars: p.querySelectorAll(".presence-avatar").length,
+        avatarInk: p.querySelector(".presence-avatar") ? getComputedStyle(p.querySelector(".presence-avatar")).color : null,
+        count: p.querySelector(".presence-count")?.textContent ?? null,
+        title: p.getAttribute("title"),
+        barHasLiveChip: !!document.querySelector(".bar .live"),
+        barRight: bar.right,
+      };
+    })()`);
+    check(
+      "presence sits in the top-right corner",
+      presenceBox.fromRight <= 24 && presenceBox.top <= 20,
+      JSON.stringify(presenceBox),
+    );
+    check(
+      "presence shows an avatar stack with a peer count",
+      presenceBox.avatars >= 1 && /\u0e04\u0e19/.test(presenceBox.count || ""),
+      JSON.stringify(presenceBox),
+    );
+    check("floating bar no longer carries the presence chip", presenceBox.barHasLiveChip === false, JSON.stringify(presenceBox));
+    check("presence clears the floating bar", presenceBox.barRight < presenceBox.left, JSON.stringify(presenceBox));
+
     const inertClosed = await cdp.evaluate(`document.querySelector(".panel").hasAttribute("inert")`);
     check("closed table panel is inert", inertClosed === true, inertClosed);
     const beforeTable = await boardElementCount();
-    await cdp.click(".table-btn");
+    await cdp.click(".tools-table");
     await cdp.waitFor(`document.querySelector(".panel")?.classList.contains("open")`, {
       label: "table panel open",
     });
@@ -671,6 +723,15 @@ async function saveTitleWith(trigger) {
       const r = p.getBoundingClientRect();
       return r.right <= innerWidth + 1 && r.left >= 0;
     })()`, { label: "table panel slides in" });
+    const tableActive = await cdp.evaluate(`(() => {
+      const t = document.querySelector(".tools-table");
+      return { active: t.classList.contains("active"), pressed: t.getAttribute("aria-pressed"), bg: getComputedStyle(t).backgroundColor };
+    })()`);
+    check(
+      "drawing tools button shows the open panel",
+      tableActive.active && tableActive.pressed === "true" && /rgba\(99, 96, 217/.test(tableActive.bg),
+      JSON.stringify(tableActive),
+    );
     const panelGlass = await cdp.evaluate(`(() => {
       const panel = document.querySelector(".panel");
       const style = getComputedStyle(panel);
@@ -694,6 +755,10 @@ async function saveTitleWith(trigger) {
     await cdp.waitFor(`!document.querySelector(".panel")?.classList.contains("open")`, {
       label: "table panel close",
     });
+    check(
+      "drawing tools button clears when the panel closes",
+      (await cdp.evaluate(`document.querySelector(".tools-table").classList.contains("active")`)) === false,
+    );
 
     // a position saved on a wide screen must be clamped when the editor opens narrow
     await cdp.evaluate(`localStorage.setItem("boards-toolbar", JSON.stringify({ x: 260, y: 10, collapsed: false }))`);
@@ -747,6 +812,53 @@ async function saveTitleWith(trigger) {
         mobileTools.width <= mobileTools.vw && mobileTools.top > 50,
       JSON.stringify(mobileTools),
     );
+    const mobilePresence = await cdp.evaluate(`(() => {
+      const p = document.querySelector(".presence");
+      const r = p.getBoundingClientRect();
+      const bar = document.querySelector(".bar").getBoundingClientRect();
+      const table = document.querySelector(".tools-table");
+      const tools = document.querySelector(".App-toolbar").getBoundingClientRect();
+      const t = table ? table.getBoundingClientRect() : null;
+      const vw = document.documentElement.clientWidth;
+      return {
+        fromRight: vw - r.right, top: r.top, left: r.left,
+        display: getComputedStyle(p).display,
+        avatars: p.querySelectorAll(".presence-avatar").length,
+        barRight: bar.right,
+        tableInside: Boolean(t && table.closest(".App-toolbar") && t.left >= tools.left - 1 && t.right <= Math.min(tools.right, vw) + 1),
+      };
+    })()`);
+    check(
+      "mobile presence stays in the top-right corner",
+      mobilePresence.display !== "none" && mobilePresence.fromRight <= 12 && mobilePresence.top <= 12,
+      JSON.stringify(mobilePresence),
+    );
+    check(
+      "mobile presence does not cover the floating bar",
+      mobilePresence.barRight < mobilePresence.left,
+      JSON.stringify(mobilePresence),
+    );
+    check(
+      "mobile drawing tools keep the table button inside the island",
+      mobilePresence.tableInside,
+      JSON.stringify(mobilePresence),
+    );
+    const mobileBarText = await cdp.evaluate(`(() => {
+      const text = document.querySelector(".title-text").getBoundingClientRect();
+      const save = document.querySelector(".save").getBoundingClientRect();
+      const saveText = document.querySelector(".save-text");
+      return {
+        titleText: Math.round(text.width),
+        saveW: Math.round(save.width),
+        saveText: saveText ? getComputedStyle(saveText).display : null,
+      };
+    })()`);
+    check("mobile bar still shows the board name", mobileBarText.titleText >= 40, JSON.stringify(mobileBarText));
+    check(
+      "mobile save status shrinks to its dot",
+      mobileBarText.saveW <= 20 && mobileBarText.saveText === "none",
+      JSON.stringify(mobileBarText),
+    );
     check(
       "mobile back button stays in the top-left corner",
       mobileTools.backLeft <= 10 && mobileTools.backTop <= 10,
@@ -785,13 +897,13 @@ async function saveTitleWith(trigger) {
     await cdp.viewport(null);
 
     await cdp.navigate(`${BASE}/b/${BOARD}`);
-    await cdp.waitFor(`!!document.querySelector(".live")`, { label: "presence ready" });
+    await cdp.waitFor(`!!document.querySelector(".presence")`, { label: "presence ready" });
     await sleep(500);
-    const live1 = await cdp.evaluate(`document.querySelector(".live")?.textContent?.trim()`);
+    const live1 = await cdp.evaluate(`document.querySelector(".presence")?.textContent?.trim()`);
     await cdp.navigate(`${BASE}/b/${BOARD}`);
-    await cdp.waitFor(`!!document.querySelector(".live")`, { label: "presence after reload" });
+    await cdp.waitFor(`!!document.querySelector(".presence")`, { label: "presence after reload" });
     await sleep(900);
-    const live2 = await cdp.evaluate(`document.querySelector(".live")?.textContent?.trim()`);
+    const live2 = await cdp.evaluate(`document.querySelector(".presence")?.textContent?.trim()`);
     check("presence stays at one peer after reload", /1\s*คน/.test(live1) && /1\s*คน/.test(live2), `${live1} -> ${live2}`);
 
     // Another client sends a sticky-like text and a pasted image over the board

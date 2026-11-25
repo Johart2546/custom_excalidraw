@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import TableBuilder from "./TableBuilder.jsx";
@@ -64,11 +65,6 @@ const IconDownload = () => (
     <path d="M5 20h14" />
   </svg>
 );
-const IconPlus = () => (
-  <svg {...icon} width={14} height={14}>
-    <path d="M12 5v14M5 12h14" />
-  </svg>
-);
 const IconGrip = () => (
   <svg {...icon} width={14} height={14} fill="currentColor" stroke="none">
     <circle cx="9" cy="6" r="1.6" />
@@ -95,6 +91,44 @@ const IconTools = () => (
     <path d="M2 12h4M10 6h4M18 17h4" />
   </svg>
 );
+/* The table button lives in the drawing tools row, so it borrows their metrics. */
+const IconTable = () => (
+  <svg {...icon} width={17} height={17} strokeWidth={1.6}>
+    <rect x="2.4" y="3.4" width="12.6" height="12.2" rx="2.1" />
+    <path d="M2.4 7.3h12.6M6.6 7.3v8.3M10.8 7.3v8.3" />
+    <path d="M19.6 15.6v5.6M16.8 18.4h5.6" strokeWidth={2.1} />
+  </svg>
+);
+
+/* "แขก 42" has to render as one Thai cluster, not a dotted-circle vowel: a
+   leading vowel (เ แ โ ใ ไ) is its own grapheme cluster, so glue it to the
+   consonant that follows. */
+const THAI_LEADING_VOWEL = /^[\u0E40-\u0E44]$/;
+
+function avatarInitial(name) {
+  const text = String(name || "").trim();
+  if (!text) return "?";
+  try {
+    const clusters = [...new Intl.Segmenter("th", { granularity: "grapheme" }).segment(text)].map(
+      (part) => part.segment,
+    );
+    const first = clusters[0] || "?";
+    const glyph =
+      THAI_LEADING_VOWEL.test(first) && clusters[1] ? `${first}${clusters[1]}` : first;
+    return glyph.toUpperCase();
+  } catch {
+    return text.slice(0, 1).toUpperCase();
+  }
+}
+
+/* White lettering disappears on the sand/yellow peer colours. */
+function avatarInk(hex) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || ""));
+  if (!match) return "#ffffff";
+  const n = Number.parseInt(match[1], 16);
+  const luma = 0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
+  return luma > 168 ? "#23232b" : "#ffffff";
+}
 
 function payloadFor(elements, appState, files) {
   const picked = {};
@@ -207,6 +241,7 @@ function themeOf(appState) {
 const TOOLBAR_KEY = "boards-toolbar";
 const TOOLBAR_MARGIN = 6;
 const TOOLBAR_MIN_X = 58;
+const PRESENCE_GAP = 8; // keeps the floating bar clear of the avatar stack
 
 function readToolbarPrefs() {
   try {
@@ -272,6 +307,8 @@ export default function App() {
   const [toolsCollapsed, setToolsCollapsed] = useState(toolsPrefsRef.current.collapsed);
   const [toolsReady, setToolsReady] = useState(false);
   const [toolsEpoch, setToolsEpoch] = useState(0);
+  // DOM slot inside the drawing tools row; the table button is portalled into it.
+  const [tableSlot, setTableSlot] = useState(null);
 
   const apiRef = useRef(null);
   const wsRef = useRef(null);
@@ -289,6 +326,7 @@ export default function App() {
   const editingTitleRef = useRef(false);
   const titleInputRef = useRef(null);
   const barRef = useRef(null);
+  const presenceRef = useRef(null);
   const toolbarDragRef = useRef(null);
   const toolbarClickRef = useRef(false);
   const canvasRef = useRef(null);
@@ -411,28 +449,41 @@ export default function App() {
 
   /* -------------------------------------------------------- floating toolbar */
 
-  const clampToolbar = useCallback(() => {
-    const el = barRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
+  /* Where the bar may sit: inside the viewport, and out of the avatar stack
+     that owns the top-right corner (it is fixed there, same band as the bar). */
+  const toolbarBounds = useCallback((rect) => {
     // Excalidraw reports a zoomed layout width on mobile emulation; the
     // document client box is the box the bar is actually laid out in.
     const viewW = document.documentElement.clientWidth || window.innerWidth;
     const viewH = document.documentElement.clientHeight || window.innerHeight;
-    const maxX = Math.max(TOOLBAR_MARGIN, viewW - rect.width - TOOLBAR_MARGIN);
-    const maxY = Math.max(TOOLBAR_MARGIN, viewH - rect.height - TOOLBAR_MARGIN);
+    let reserve = 0;
+    const pill = presenceRef.current?.getBoundingClientRect();
+    if (pill && pill.width > 0 && rect && pill.top < rect.bottom && pill.bottom > rect.top) {
+      reserve = Math.max(0, viewW - pill.left + PRESENCE_GAP);
+    }
+    return {
+      maxX: Math.max(TOOLBAR_MIN_X, viewW - (rect?.width || 0) - TOOLBAR_MARGIN - reserve),
+      maxY: Math.max(TOOLBAR_MARGIN, viewH - (rect?.height || 0) - TOOLBAR_MARGIN),
+    };
+  }, []);
+
+  const clampToolbar = useCallback(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const { maxX, maxY } = toolbarBounds(rect);
     setToolbarPos((pos) => {
       const x = Math.min(Math.max(TOOLBAR_MIN_X, pos.x), maxX);
       const y = Math.min(Math.max(TOOLBAR_MARGIN, pos.y), maxY);
       return x === pos.x && y === pos.y ? pos : { x, y };
     });
-  }, []);
+  }, [toolbarBounds]);
 
   // the bar changes width when it folds or the title goes into edit mode, and
   // it first appears only after the board has loaded
   useEffect(() => {
     clampToolbar();
-  }, [clampToolbar, toolbarCollapsed, editingTitle, phase]);
+  }, [clampToolbar, toolbarCollapsed, editingTitle, phase, peers.length]);
 
   useEffect(() => {
     const onResize = () => clampToolbar();
@@ -519,15 +570,12 @@ export default function App() {
     const el = barRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const viewW = document.documentElement.clientWidth || window.innerWidth;
-    const viewH = document.documentElement.clientHeight || window.innerHeight;
-    const maxX = Math.max(TOOLBAR_MIN_X, viewW - rect.width - TOOLBAR_MARGIN);
-    const maxY = Math.max(TOOLBAR_MARGIN, viewH - rect.height - TOOLBAR_MARGIN);
+    const { maxX, maxY } = toolbarBounds(rect);
     setToolbarPos({
       x: Math.min(Math.max(TOOLBAR_MIN_X, drag.originX + dx), maxX),
       y: Math.min(Math.max(TOOLBAR_MARGIN, drag.originY + dy), maxY),
     });
-  }, []);
+  }, [toolbarBounds]);
 
   const endToolbarDrag = useCallback((event) => {
     const drag = toolbarDragRef.current;
@@ -643,8 +691,15 @@ export default function App() {
     fold.innerHTML =
       '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>';
 
+    // The table button is a React portal, not DOM surgery: this span only marks
+    // where in the row it belongs (just before the fold control).
+    const slot = document.createElement("span");
+    slot.className = "tools-table-slot";
+
     stack.prepend(grip);
+    stack.append(slot);
     stack.append(fold);
+    setTableSlot(slot);
 
     const clampPoint = (x, y) => {
       const rect = el.getBoundingClientRect();
@@ -703,10 +758,12 @@ export default function App() {
     grip.addEventListener("dblclick", resetToolsPosition);
     fold.addEventListener("click", onFold);
 
-    // React re-renders the tool row on theme/tool changes; keep our two controls.
+    // React re-renders the tool row on theme/tool changes; keep our controls,
+    // grip first and fold last, with the table slot in front of the fold.
     const keepControls = () => {
-      if (!stack.contains(grip)) stack.prepend(grip);
-      if (!stack.contains(fold)) stack.append(fold);
+      if (stack.firstElementChild !== grip) stack.prepend(grip);
+      if (!stack.contains(slot)) stack.insertBefore(slot, fold.isConnected ? fold : null);
+      if (stack.lastElementChild !== fold) stack.append(fold);
     };
     const observer = new MutationObserver(keepControls);
     observer.observe(stack, { childList: true });
@@ -720,7 +777,9 @@ export default function App() {
       grip.removeEventListener("dblclick", resetToolsPosition);
       fold.removeEventListener("click", onFold);
       grip.remove();
+      slot.remove();
       fold.remove();
+      setTableSlot(null);
       el.classList.remove("tools-floating");
       el.style.left = "";
       el.style.top = "";
@@ -1271,9 +1330,62 @@ export default function App() {
   const others = peers.filter((p) => p.id !== meRef.current?.id);
   const liveLabel = live === "open" ? `${peers.length} คน` : live === "connecting" ? "กำลังเชื่อมต่อ…" : "ออฟไลน์";
   const liveTitle = others.length ? others.map((p) => p.name).join(", ") : "ยังไม่มีคนอื่นเข้ามาในกระดานนี้";
+  const MAX_AVATARS = 4;
+  const shownPeers = peers.slice(0, MAX_AVATARS);
+  const extraPeers = Math.max(0, peers.length - shownPeers.length);
+  const presenceTitle = live === "open" ? liveTitle : liveLabel;
+  const presenceLabel =
+    live === "open"
+      ? `คนในกระดานนี้ ${peers.length} คน`
+      : live === "connecting"
+        ? "กำลังเชื่อมต่อกับกระดานนี้"
+        : "ออฟไลน์";
 
   return (
     <div className={`shell${panelOpen ? " panel-open" : ""}${editingTitle ? " editing-title" : ""}${toolsReady && toolsCollapsed ? " tools-collapsed" : ""}`}>
+      <div className={`presence ${live}`} ref={presenceRef} title={presenceTitle} aria-label={presenceLabel}>
+        {live === "open" ? (
+          <>
+            <span className="presence-avatars">
+              {shownPeers.map((peer) => (
+                <span
+                  key={peer.id}
+                  className="presence-avatar"
+                  style={{ background: peer.color, color: avatarInk(peer.color) }}
+                  title={peer.name}
+                >
+                  {avatarInitial(peer.name)}
+                </span>
+              ))}
+              {extraPeers > 0 && (
+                <span className="presence-avatar presence-more" title={presenceTitle}>
+                  +{extraPeers}
+                </span>
+              )}
+            </span>
+            <span className="presence-count">{liveLabel}</span>
+          </>
+        ) : (
+          <span className="presence-state">
+            <i />
+            {liveLabel}
+          </span>
+        )}
+      </div>
+      {tableSlot &&
+        createPortal(
+          <button
+            type="button"
+            className={`tools-table${panelOpen ? " active" : ""}`}
+            onClick={() => setPanelOpen((v) => !v)}
+            aria-label="เปิดตัวสร้างตาราง"
+            aria-pressed={panelOpen}
+            title="สร้าง/แก้ตาราง"
+          >
+            <IconTable />
+          </button>,
+          tableSlot,
+        )}
       <a className="back-fab" href="/" aria-label="กลับไปหน้ารวมกระดาน" title="กลับไปหน้ารวมกระดาน">
         <IconBack />
       </a>
@@ -1364,7 +1476,7 @@ export default function App() {
 
         <span className={`save ${saveState}`} aria-live="polite">
           <i />
-          {SAVE_LABEL[saveState]}
+          <span className="save-text">{SAVE_LABEL[saveState]}</span>
         </span>
 
         {titleError && (
@@ -1372,11 +1484,6 @@ export default function App() {
             {titleError}
           </span>
         )}
-
-        <span className={`live ${live}`} title={liveTitle}>
-          <i style={{ background: live === "open" ? others[0]?.color || "#4ec38a" : undefined }} />
-          {liveLabel}
-        </span>
 
         <span className="spacer" />
 
@@ -1400,17 +1507,6 @@ export default function App() {
           <IconDownload />
         </a>
 
-        <button
-          type="button"
-          className={`btn table-btn${panelOpen ? " active" : ""}`}
-          onClick={() => setPanelOpen((v) => !v)}
-          aria-label="เปิดตัวสร้างตาราง"
-          aria-pressed={panelOpen}
-          title="สร้าง/แก้ตาราง"
-        >
-          <IconPlus />
-          <span>ตาราง</span>
-        </button>
         <button
           type="button"
           className="icon-btn bar-tools"

@@ -288,8 +288,7 @@ body {
 
 /* ------------------------------------------------------------- save status */
 
-.save,
-.live {
+.save {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -300,8 +299,7 @@ body {
   white-space: nowrap;
 }
 
-.save i,
-.live i {
+.save i {
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -337,18 +335,86 @@ body {
   background: var(--bad);
 }
 
-/* presence: how many people have this board open right now */
-.live.open {
-  color: var(--ink);
+/* ---------------------------------------------------------------- presence */
+/* Who is in the board right now: a small avatar stack in the top-right corner,
+   the same place excalidraw.com puts it. It is a sibling of .bar, not a child -
+   .bar has a backdrop-filter, which would become its containing block. */
+
+.presence {
+  position: fixed;
+  top: 10px;
+  right: 12px;
+  z-index: 62;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.38));
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  box-shadow: 0 12px 30px rgba(31, 36, 71, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  user-select: none;
 }
-.live.connecting i {
+
+.presence-avatars {
+  display: inline-flex;
+  align-items: center;
+}
+
+.presence-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 3px rgba(31, 36, 71, 0.18);
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+}
+.presence-avatar + .presence-avatar {
+  margin-left: -8px;
+}
+.presence-more {
+  background: rgba(24, 24, 39, 0.1);
+  color: var(--muted);
+}
+
+.presence-count {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.presence-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 2px;
+}
+.presence-state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   background: #b9b9c0;
+  flex: none;
+}
+.presence.connecting .presence-state i {
   animation: pulse 1.6s ease-in-out infinite;
 }
-.live.closed {
+.presence.closed {
   color: var(--bad);
 }
-.live.closed i {
+.presence.closed .presence-state i {
   background: var(--bad);
 }
 
@@ -415,13 +481,6 @@ body {
   width: 100%;
   justify-content: center;
   padding: 8px 12px;
-}
-
-.table-btn {
-  flex: none;
-  height: 30px;
-  padding: 0 10px;
-  margin-left: 2px;
 }
 
 /* ------------------------------------------------------------------- canvas */
@@ -512,6 +571,45 @@ body {
 }
 .tools-fold svg {
   opacity: 0.62;
+}
+
+/* The table builder's entry point sits inside the drawing-tools row, so it
+   borrows the native tool metrics (29.25px box, 6.5px radius). */
+.tools-table-slot {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin: 0 1px;
+}
+.tools-table {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  border: 0;
+  border-radius: 6.5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  touch-action: none;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.tools-table:hover {
+  background: rgba(0, 0, 0, 0.055);
+}
+.tools-table:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.tools-table.active {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .shell.tools-collapsed .canvas .excalidraw .App-toolbar.tools-floating {
   display: none;
@@ -761,6 +859,7 @@ code {
 /* Browsers without backdrop blur still need an opaque-enough surface. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .bar,
+  .presence,
   .panel {
     background: rgba(250, 251, 255, 0.96);
   }
@@ -774,7 +873,7 @@ code {
     top: 6px;
     left: 52px;
     right: auto;
-    width: calc(100vw - 70px);
+    width: calc(100vw - 70px - 68px);
     max-width: none;
     gap: 3px;
     margin: 0;
@@ -815,8 +914,21 @@ code {
     width: 100%;
     max-width: none;
   }
-  .title-edit span {
+  /* the hover hint has no hover on a phone, and the title needs the pixels */
+  .title-edit {
     display: none;
+  }
+  /* status is a coloured dot; the wording only shows while it matters */
+  .save {
+    gap: 0;
+  }
+  .save-text {
+    display: none;
+  }
+  .save.dirty .save-text,
+  .save.saving .save-text,
+  .save.error .save-text {
+    display: inline;
   }
   .shell.editing-title .title-input {
     flex: 1 1 auto;
@@ -825,16 +937,35 @@ code {
   }
   /* while typing a name, give the field the room instead of status chrome */
   .shell.editing-title .bar-extra,
-  .shell.editing-title .save,
-  .shell.editing-title .live {
+  .shell.editing-title .save {
     display: none;
   }
-  .table-btn span {
+  /* the presence pill shrinks to avatars so the bar keeps its room */
+  .presence {
+    top: 6px;
+    right: 6px;
+    height: 38px;
+    padding: 0 8px;
+    gap: 0;
+    border-radius: 12px;
+  }
+  .presence-avatar {
+    width: 21px;
+    height: 21px;
+    font-size: 9.5px;
+  }
+  .presence-avatar + .presence-avatar {
+    margin-left: -7px;
+  }
+  .presence-avatar:nth-child(n + 4) {
     display: none;
   }
-  .table-btn {
-    width: 30px;
-    padding: 0;
+  .presence-count {
+    display: none;
+  }
+  .presence-state {
+    padding-right: 0;
+    font-size: 11px;
   }
   .save {
     padding: 0 2px;
