@@ -525,6 +525,96 @@ async function saveTitleWith(trigger) {
       JSON.stringify(unfolded),
     );
 
+    await cdp.evaluate(`document.querySelector(".bar-grip").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`);
+    await sleep(300);
+    const backButton = await cdp.evaluate(`(() => {
+      const back = document.querySelector(".back-fab");
+      const old = document.querySelector('.bar-content a[href="/"]');
+      const r = back?.getBoundingClientRect();
+      return {
+        exists: !!back,
+        href: back?.getAttribute("href") || null,
+        left: r?.left ?? null,
+        top: r?.top ?? null,
+        oldInBar: !!old,
+      };
+    })()`);
+    check(
+      "back button is a separate top-left control",
+      backButton.exists && backButton.href === "/" && !backButton.oldInBar &&
+        backButton.left <= 16 && backButton.top <= 16,
+      JSON.stringify(backButton),
+    );
+
+    const toolsBefore = await cdp.evaluate(`(() => {
+      const tools = document.querySelector(".App-toolbar");
+      const grip = tools?.querySelector(".tools-grip");
+      const fold = tools?.querySelector(".tools-fold");
+      const r = tools?.getBoundingClientRect();
+      return {
+        exists: !!tools,
+        floating: tools?.classList.contains("tools-floating") || false,
+        position: tools ? getComputedStyle(tools).position : null,
+        grip: !!grip,
+        fold: !!fold,
+        left: r?.left ?? null,
+        top: r?.top ?? null,
+        bottom: r?.bottom ?? null,
+        barBottom: document.querySelector(".bar").getBoundingClientRect().bottom,
+      };
+    })()`);
+    check(
+      "drawing tools are a separate floating island",
+      toolsBefore.exists && toolsBefore.floating && toolsBefore.position === "fixed" &&
+        toolsBefore.grip && toolsBefore.fold && toolsBefore.top > toolsBefore.barBottom,
+      JSON.stringify(toolsBefore),
+    );
+
+    await cdp.drag(".tools-grip", 70, 40);
+    await sleep(200);
+    const toolsAfter = await cdp.evaluate(`(() => {
+      const r = document.querySelector(".App-toolbar").getBoundingClientRect();
+      const saved = JSON.parse(localStorage.getItem("boards-tools") || "null");
+      return { left: r.left, top: r.top, vw: innerWidth, vh: innerHeight, w: r.width, h: r.height, saved };
+    })()`);
+    check(
+      "drawing tools can be dragged and remember their spot",
+      toolsAfter.left > toolsBefore.left + 30 && toolsAfter.top > toolsBefore.top + 20 &&
+        toolsAfter.left + toolsAfter.w <= toolsAfter.vw && toolsAfter.top + toolsAfter.h <= toolsAfter.vh &&
+        !!toolsAfter.saved,
+      JSON.stringify({ toolsBefore, toolsAfter }),
+    );
+
+    await cdp.click(".tools-fold");
+    await cdp.waitFor(`document.querySelector(".shell").classList.contains("tools-collapsed")`, {
+      label: "tools fold",
+    });
+    const toolsFolded = await cdp.evaluate(`(() => {
+      const tools = document.querySelector(".App-toolbar");
+      const launcher = document.querySelector(".tools-launcher");
+      return {
+        display: getComputedStyle(tools).display,
+        launcher: !!launcher,
+        launcherLabel: launcher?.getAttribute("aria-label") || null,
+      };
+    })()`);
+    check(
+      "drawing tools fold into a launcher",
+      toolsFolded.display === "none" && toolsFolded.launcher &&
+        toolsFolded.launcherLabel === "แสดงเครื่องมือวาด",
+      JSON.stringify(toolsFolded),
+    );
+    await cdp.click(".tools-launcher");
+    await cdp.waitFor(`!document.querySelector(".shell").classList.contains("tools-collapsed")`, {
+      label: "tools unfold",
+    });
+    check(
+      "the launcher brings the drawing tools back",
+      (await cdp.evaluate(`getComputedStyle(document.querySelector(".App-toolbar")).display`)) !== "none",
+    );
+    await cdp.evaluate(`document.querySelector(".tools-grip").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`);
+    await sleep(250);
+
     // put it back before the mobile pass so the menu clearance check means something
     await cdp.evaluate(`document.querySelector(".bar-grip").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`);
     await sleep(300);
@@ -639,6 +729,40 @@ async function saveTitleWith(trigger) {
         mobileOverlay.menuTop !== null &&
         mobileOverlay.barBottom <= mobileOverlay.menuTop - 4,
       JSON.stringify(mobileOverlay),
+    );
+
+    const mobileTools = await cdp.evaluate(`(() => {
+      const tools = document.querySelector(".App-toolbar");
+      const r = tools.getBoundingClientRect();
+      const back = document.querySelector(".back-fab").getBoundingClientRect();
+      const vw = document.documentElement.clientWidth;
+      return {
+        left: r.left, right: r.right, width: r.width, top: r.top, vw,
+        backLeft: back.left, backTop: back.top,
+      };
+    })()`);
+    check(
+      "mobile drawing tools stay on screen",
+      mobileTools.left >= 0 && mobileTools.right <= mobileTools.vw + 1 &&
+        mobileTools.width <= mobileTools.vw && mobileTools.top > 50,
+      JSON.stringify(mobileTools),
+    );
+    check(
+      "mobile back button stays in the top-left corner",
+      mobileTools.backLeft <= 10 && mobileTools.backTop <= 10,
+      JSON.stringify({ left: mobileTools.backLeft, top: mobileTools.backTop }),
+    );
+    await cdp.click(".tools-fold");
+    await cdp.waitFor(`document.querySelector(".shell").classList.contains("tools-collapsed")`, {
+      label: "mobile tools fold",
+    });
+    await cdp.click(".tools-launcher");
+    await cdp.waitFor(`!document.querySelector(".shell").classList.contains("tools-collapsed")`, {
+      label: "mobile tools unfold",
+    });
+    check(
+      "mobile tools fold and come back",
+      (await cdp.evaluate(`getComputedStyle(document.querySelector(".App-toolbar")).display`)) !== "none",
     );
 
     await cdp.click(".title-btn");

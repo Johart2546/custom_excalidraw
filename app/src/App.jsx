@@ -89,6 +89,12 @@ const IconMenu = () => (
     <path d="M4 7h16M4 12h16M4 17h16" />
   </svg>
 );
+const IconTools = () => (
+  <svg {...icon} width={15} height={15}>
+    <path d="M4 20v-5M12 20V9M20 20v-8" />
+    <path d="M2 12h4M10 6h4M18 17h4" />
+  </svg>
+);
 
 function payloadFor(elements, appState, files) {
   const picked = {};
@@ -200,17 +206,36 @@ function themeOf(appState) {
    Bad or missing saved data simply falls back to the top-left corner. */
 const TOOLBAR_KEY = "boards-toolbar";
 const TOOLBAR_MARGIN = 6;
+const TOOLBAR_MIN_X = 58;
 
 function readToolbarPrefs() {
   try {
     const saved = JSON.parse(window.localStorage.getItem(TOOLBAR_KEY) || "null");
     return {
-      x: Number.isFinite(saved?.x) ? saved.x : 12,
+      x: Number.isFinite(saved?.x) ? saved.x : TOOLBAR_MIN_X,
       y: Number.isFinite(saved?.y) ? saved.y : 10,
       collapsed: saved?.collapsed === true,
     };
   } catch {
-    return { x: 12, y: 10, collapsed: false };
+    return { x: TOOLBAR_MIN_X, y: 10, collapsed: false };
+  }
+}
+
+/* The drawing tools get the same treatment: drag the little grip to float
+   them anywhere, and fold them away when the canvas needs the room. */
+const TOOLS_KEY = "boards-tools";
+const TOOLS_MARGIN = 8;
+
+function readToolsPrefs() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(TOOLS_KEY) || "null");
+    return {
+      x: Number.isFinite(saved?.x) ? saved.x : null,
+      y: Number.isFinite(saved?.y) ? saved.y : null,
+      collapsed: saved?.collapsed === true,
+    };
+  } catch {
+    return { x: null, y: null, collapsed: false };
   }
 }
 
@@ -238,6 +263,15 @@ export default function App() {
     y: toolbarPrefsRef.current.y,
   }));
   const [toolbarCollapsed, setToolbarCollapsed] = useState(toolbarPrefsRef.current.collapsed);
+  const toolsPrefsRef = useRef(null);
+  if (!toolsPrefsRef.current) toolsPrefsRef.current = readToolsPrefs();
+  const [toolsPos, setToolsPos] = useState(() => {
+    const saved = toolsPrefsRef.current;
+    return saved.x === null || saved.y === null ? null : { x: saved.x, y: saved.y };
+  });
+  const [toolsCollapsed, setToolsCollapsed] = useState(toolsPrefsRef.current.collapsed);
+  const [toolsReady, setToolsReady] = useState(false);
+  const [toolsEpoch, setToolsEpoch] = useState(0);
 
   const apiRef = useRef(null);
   const wsRef = useRef(null);
@@ -257,6 +291,12 @@ export default function App() {
   const barRef = useRef(null);
   const toolbarDragRef = useRef(null);
   const toolbarClickRef = useRef(false);
+  const canvasRef = useRef(null);
+  const toolsRef = useRef(null);
+  const toolsNaturalRef = useRef(null);
+  const toolsDragRef = useRef(null);
+  const toolsCollapsedRef = useRef(toolsCollapsed);
+  toolsCollapsedRef.current = toolsCollapsed;
 
   /* ---------------------------------------------------------------- boot */
 
@@ -382,7 +422,7 @@ export default function App() {
     const maxX = Math.max(TOOLBAR_MARGIN, viewW - rect.width - TOOLBAR_MARGIN);
     const maxY = Math.max(TOOLBAR_MARGIN, viewH - rect.height - TOOLBAR_MARGIN);
     setToolbarPos((pos) => {
-      const x = Math.min(Math.max(TOOLBAR_MARGIN, pos.x), maxX);
+      const x = Math.min(Math.max(TOOLBAR_MIN_X, pos.x), maxX);
       const y = Math.min(Math.max(TOOLBAR_MARGIN, pos.y), maxY);
       return x === pos.x && y === pos.y ? pos : { x, y };
     });
@@ -433,7 +473,7 @@ export default function App() {
   }, [saveTitle, titleDraft]);
 
   const resetToolbarPosition = useCallback(() => {
-    setToolbarPos({ x: 12, y: 10 });
+    setToolbarPos({ x: TOOLBAR_MIN_X, y: 10 });
     window.requestAnimationFrame(() => clampToolbar());
   }, [clampToolbar]);
 
@@ -479,10 +519,12 @@ export default function App() {
     const el = barRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const maxX = Math.max(TOOLBAR_MARGIN, window.innerWidth - rect.width - TOOLBAR_MARGIN);
-    const maxY = Math.max(TOOLBAR_MARGIN, window.innerHeight - rect.height - TOOLBAR_MARGIN);
+    const viewW = document.documentElement.clientWidth || window.innerWidth;
+    const viewH = document.documentElement.clientHeight || window.innerHeight;
+    const maxX = Math.max(TOOLBAR_MIN_X, viewW - rect.width - TOOLBAR_MARGIN);
+    const maxY = Math.max(TOOLBAR_MARGIN, viewH - rect.height - TOOLBAR_MARGIN);
     setToolbarPos({
-      x: Math.min(Math.max(TOOLBAR_MARGIN, drag.originX + dx), maxX),
+      x: Math.min(Math.max(TOOLBAR_MIN_X, drag.originX + dx), maxX),
       y: Math.min(Math.max(TOOLBAR_MARGIN, drag.originY + dy), maxY),
     });
   }, []);
@@ -506,6 +548,220 @@ export default function App() {
       }
     }
   }, []);
+
+  /* ------------------------------------------------------ floating draw tools */
+
+  const clampTools = useCallback(() => {
+    const el = toolsRef.current;
+    if (!el || toolsCollapsedRef.current) return;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width && !rect.height) return;
+    const viewW = document.documentElement.clientWidth || window.innerWidth;
+    const viewH = document.documentElement.clientHeight || window.innerHeight;
+    setToolsPos((pos) => {
+      if (!pos) return pos;
+      const maxX = Math.max(TOOLS_MARGIN, viewW - rect.width - TOOLS_MARGIN);
+      const maxY = Math.max(TOOLS_MARGIN, viewH - rect.height - TOOLS_MARGIN);
+      const x = Math.min(Math.max(TOOLS_MARGIN, pos.x), maxX);
+      const y = Math.min(Math.max(TOOLS_MARGIN, pos.y), maxY);
+      return x === pos.x && y === pos.y ? pos : { x, y };
+    });
+  }, []);
+
+  const toggleTools = useCallback(() => {
+    setToolsCollapsed((collapsed) => !collapsed);
+  }, []);
+
+  const resetToolsPosition = useCallback(() => {
+    const el = toolsRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const viewW = document.documentElement.clientWidth || window.innerWidth;
+    setToolsPos({
+      x: Math.max(TOOLS_MARGIN, Math.round((viewW - rect.width) / 2)),
+      y: Math.max(TOOLS_MARGIN, toolsNaturalRef.current?.y ?? 65),
+    });
+  }, []);
+
+  // Excalidraw owns the drawing-tool island. Give its row a grip and a fold
+  // button, then treat the island as our own floating panel (fixed coordinates
+  // so it can travel over the canvas and stay put when the canvas scrolls).
+  // Excalidraw mounts its toolbar a frame or two after the board becomes ready.
+  // Wait for that node once, then let the main effect below attach to it.
+  useEffect(() => {
+    if (phase !== "ready") return undefined;
+    let cancelled = false;
+    let frame = 0;
+    const look = () => {
+      if (cancelled) return;
+      if (canvasRef.current?.querySelector(".App-toolbar")) {
+        setToolsEpoch((value) => value + 1);
+        return;
+      }
+      frame = window.requestAnimationFrame(look);
+    };
+    look();
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "ready") return undefined;
+    const el = canvasRef.current?.querySelector(".App-toolbar");
+    if (!el) return undefined;
+    const stack = el.querySelector(":scope > .Stack.Stack_horizontal") || el.querySelector(".Stack.Stack_horizontal");
+    if (!stack) return undefined;
+    toolsRef.current = el;
+    const natural = el.getBoundingClientRect();
+    toolsNaturalRef.current = { x: natural.left, y: natural.top };
+    const saved = toolsPrefsRef.current;
+    const start = {
+      x: Number.isFinite(saved.x) ? saved.x : natural.left,
+      y: Number.isFinite(saved.y) ? saved.y : natural.top,
+    };
+    el.style.left = `${start.x}px`;
+    el.style.top = `${start.y}px`;
+    el.classList.add("tools-floating");
+    setToolsPos((pos) => pos || start);
+    setToolsReady(true);
+
+    const grip = document.createElement("button");
+    grip.type = "button";
+    grip.className = "tools-grip";
+    grip.title = "ลากเพื่อย้ายเครื่องมือวาด · ดับเบิลคลิกเพื่อวางกลับตรงกลาง";
+    grip.setAttribute("aria-label", "ลากเครื่องมือวาด");
+    grip.innerHTML =
+      '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
+
+    const fold = document.createElement("button");
+    fold.type = "button";
+    fold.className = "tools-fold";
+    fold.title = "ย่อเครื่องมือวาด";
+    fold.setAttribute("aria-label", "ย่อเครื่องมือวาด");
+    fold.innerHTML =
+      '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>';
+
+    stack.prepend(grip);
+    stack.append(fold);
+
+    const clampPoint = (x, y) => {
+      const rect = el.getBoundingClientRect();
+      const viewW = document.documentElement.clientWidth || window.innerWidth;
+      const viewH = document.documentElement.clientHeight || window.innerHeight;
+      return {
+        x: Math.min(Math.max(TOOLS_MARGIN, x), Math.max(TOOLS_MARGIN, viewW - rect.width - TOOLS_MARGIN)),
+        y: Math.min(Math.max(TOOLS_MARGIN, y), Math.max(TOOLS_MARGIN, viewH - rect.height - TOOLS_MARGIN)),
+      };
+    };
+
+    const onDown = (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = el.getBoundingClientRect();
+      toolsDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: rect.left,
+        originY: rect.top,
+      };
+      try {
+        grip.setPointerCapture(event.pointerId);
+      } catch {
+        /* the next move still updates the position */
+      }
+    };
+    const onMove = (event) => {
+      const drag = toolsDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      setToolsPos(clampPoint(drag.originX + dx, drag.originY + dy));
+    };
+    const onUp = (event) => {
+      if (!toolsDragRef.current) return;
+      toolsDragRef.current = null;
+      try {
+        grip.releasePointerCapture(event.pointerId);
+      } catch {
+        /* already released */
+      }
+    };
+    const onFold = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setToolsCollapsed(true);
+    };
+    grip.addEventListener("pointerdown", onDown);
+    grip.addEventListener("pointermove", onMove);
+    grip.addEventListener("pointerup", onUp);
+    grip.addEventListener("pointercancel", onUp);
+    grip.addEventListener("dblclick", resetToolsPosition);
+    fold.addEventListener("click", onFold);
+
+    // React re-renders the tool row on theme/tool changes; keep our two controls.
+    const keepControls = () => {
+      if (!stack.contains(grip)) stack.prepend(grip);
+      if (!stack.contains(fold)) stack.append(fold);
+    };
+    const observer = new MutationObserver(keepControls);
+    observer.observe(stack, { childList: true });
+
+    return () => {
+      observer.disconnect();
+      grip.removeEventListener("pointerdown", onDown);
+      grip.removeEventListener("pointermove", onMove);
+      grip.removeEventListener("pointerup", onUp);
+      grip.removeEventListener("pointercancel", onUp);
+      grip.removeEventListener("dblclick", resetToolsPosition);
+      fold.removeEventListener("click", onFold);
+      grip.remove();
+      fold.remove();
+      el.classList.remove("tools-floating");
+      el.style.left = "";
+      el.style.top = "";
+      toolsDragRef.current = null;
+      setToolsReady(false);
+      if (toolsRef.current === el) toolsRef.current = null;
+    };
+  }, [phase, resetToolsPosition, toolsEpoch]);
+
+  useEffect(() => {
+    const el = toolsRef.current;
+    if (!el || !toolsPos) return;
+    el.style.left = `${toolsPos.x}px`;
+    el.style.top = `${toolsPos.y}px`;
+  }, [toolsPos]);
+
+  useEffect(() => {
+    if (phase !== "ready" || !toolsReady || toolsCollapsed) return;
+    clampTools();
+  }, [phase, toolsReady, toolsCollapsed, toolsPos, clampTools]);
+
+  useEffect(() => {
+    const onResize = () => clampTools();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clampTools]);
+
+  useEffect(() => {
+    if (!toolsPos) return undefined;
+    const timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(
+          TOOLS_KEY,
+          JSON.stringify({ ...toolsPos, collapsed: toolsCollapsed }),
+        );
+      } catch {
+        /* private mode: remembering the spot is optional */
+      }
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [toolsPos, toolsCollapsed]);
 
   /* ---------------------------------------------------------------- saving */
 
@@ -1017,7 +1273,10 @@ export default function App() {
   const liveTitle = others.length ? others.map((p) => p.name).join(", ") : "ยังไม่มีคนอื่นเข้ามาในกระดานนี้";
 
   return (
-    <div className={`shell${panelOpen ? " panel-open" : ""}${editingTitle ? " editing-title" : ""}`}>
+    <div className={`shell${panelOpen ? " panel-open" : ""}${editingTitle ? " editing-title" : ""}${toolsReady && toolsCollapsed ? " tools-collapsed" : ""}`}>
+      <a className="back-fab" href="/" aria-label="กลับไปหน้ารวมกระดาน" title="กลับไปหน้ารวมกระดาน">
+        <IconBack />
+      </a>
       <header
         ref={barRef}
         className={`bar${toolbarCollapsed ? " collapsed" : ""}`}
@@ -1037,10 +1296,6 @@ export default function App() {
           <IconGrip />
         </button>
         <div className="bar-content">
-        <a className="icon-btn" href="/" aria-label="กลับไปหน้ารวมกระดาน" title="กลับไปหน้ารวมกระดาน">
-          <IconBack />
-        </a>
-
         <div className="title-slot">
           {editingTitle ? (
             <>
@@ -1156,6 +1411,16 @@ export default function App() {
           <IconPlus />
           <span>ตาราง</span>
         </button>
+        <button
+          type="button"
+          className="icon-btn bar-tools"
+          onClick={toggleTools}
+          aria-label={toolsCollapsed ? "แสดงเครื่องมือวาด" : "ซ่อนเครื่องมือวาด"}
+          aria-expanded={!toolsCollapsed}
+          title={toolsCollapsed ? "แสดงเครื่องมือวาด" : "ซ่อนเครื่องมือวาด"}
+        >
+          <IconTools />
+        </button>
         </div>
         <button
           type="button"
@@ -1169,7 +1434,7 @@ export default function App() {
         </button>
       </header>
 
-      <div className="canvas">
+      <div className="canvas" ref={canvasRef}>
         <Excalidraw
           theme={theme}
           initialData={{
@@ -1185,6 +1450,20 @@ export default function App() {
           }}
         />
       </div>
+
+      {toolsReady && toolsCollapsed && toolsPos && (
+        <button
+          type="button"
+          className="tools-launcher"
+          style={{ left: toolsPos.x, top: toolsPos.y }}
+          onClick={() => setToolsCollapsed(false)}
+          aria-label="แสดงเครื่องมือวาด"
+          title="แสดงเครื่องมือวาด"
+        >
+          <IconTools />
+          <span>เครื่องมือ</span>
+        </button>
+      )}
 
       <TableBuilder
         open={panelOpen}

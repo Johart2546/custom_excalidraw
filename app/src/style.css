@@ -455,6 +455,123 @@ body {
   margin-top: 52px;
 }
 
+/* The drawing-tool island is moved out of Excalidraw's top grid and becomes a
+   floating panel with its own grip and fold button. */
+.canvas .excalidraw .App-toolbar.tools-floating {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  z-index: 50;
+  margin: 0;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  touch-action: none;
+  user-select: none;
+}
+.canvas .excalidraw .App-toolbar.tools-floating .HintViewer {
+  pointer-events: none;
+}
+.tools-grip,
+.tools-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 17px;
+  height: 27px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+}
+.tools-grip {
+  margin-right: 1px;
+}
+.tools-grip:hover,
+.tools-fold:hover {
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--ink);
+}
+.tools-grip:active {
+  cursor: grabbing;
+}
+.tools-grip:focus-visible,
+.tools-fold:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.tools-grip svg {
+  opacity: 0.58;
+}
+.tools-fold {
+  margin-left: 1px;
+  cursor: pointer;
+}
+.tools-fold svg {
+  opacity: 0.62;
+}
+.shell.tools-collapsed .canvas .excalidraw .App-toolbar.tools-floating {
+  display: none;
+}
+.tools-launcher {
+  position: fixed;
+  z-index: 52;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 11px 0 9px;
+  border: 1px solid var(--glass-line);
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5));
+  box-shadow: 0 10px 28px rgba(31, 36, 71, 0.14);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+}
+.tools-launcher:hover {
+  background: rgba(255, 255, 255, 0.84);
+}
+.tools-launcher:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* separate navigation button, pinned to the top-left of the page */
+.back-fab {
+  position: fixed;
+  top: 10px;
+  left: 12px;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.48));
+  box-shadow: 0 10px 28px rgba(31, 36, 71, 0.14);
+  color: var(--muted);
+  text-decoration: none;
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+}
+.back-fab:hover {
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ink);
+}
+.back-fab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* -------------------------------------------------------------------- panel */
 
 .panel {
@@ -655,9 +772,9 @@ code {
 @media (max-width: 560px) {
   .bar {
     top: 6px;
-    left: 6px;
+    left: 52px;
     right: auto;
-    width: calc(100vw - 12px);
+    width: calc(100vw - 70px);
     max-width: none;
     gap: 3px;
     margin: 0;
@@ -670,6 +787,16 @@ code {
   .bar.collapsed {
     width: max-content;
     padding: 0 5px;
+  }
+  .back-fab {
+    top: 6px;
+    left: 6px;
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+  }
+  .bar-tools {
+    display: none;
   }
   .panel {
     width: calc(100vw - 16px);
