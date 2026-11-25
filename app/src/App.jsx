@@ -388,30 +388,35 @@ export default function App() {
   // Excalidraw owns the drawing-tool island. Give its row a grip and a fold
   // button, then treat the island as our own floating panel (fixed coordinates
   // so it can travel over the canvas and stay put when the canvas scrolls).
-  // Excalidraw mounts its toolbar a frame or two after the board becomes ready.
-  // Wait for that node once, then let the main effect below attach to it.
+  /* Phones keep Excalidraw's own mobile tool row: it is already sized for the
+     small island, and floating it would push the row past the screen edge. */
+  const phoneRow = () => window.matchMedia("(max-width: 560px)").matches;
+
+  // Excalidraw mounts its toolbar a frame or two after the board becomes ready,
+  // and re-renders it as a fresh node now and then. Poll for a while instead of
+  // looking once: bump the epoch whenever the row is there but our grip is not,
+  // so both the first mount and a later replacement get the grip, the table slot
+  // and the fold control.
   useEffect(() => {
     if (phase !== "ready") return undefined;
     let cancelled = false;
-    let frame = 0;
+    let timer = 0;
+    const startedAt = performance.now();
     const look = () => {
       if (cancelled) return;
-      if (canvasRef.current?.querySelector(".App-toolbar")) {
-        setToolsEpoch((value) => value + 1);
-        return;
+      if (!phoneRow()) {
+        const row = canvasRef.current?.querySelector(".App-toolbar");
+        const stack = row?.querySelector(".Stack.Stack_horizontal");
+        if (stack && !row.querySelector(".tools-grip")) setToolsEpoch((value) => value + 1);
       }
-      frame = window.requestAnimationFrame(look);
+      if (performance.now() - startedAt < 20000) timer = window.setTimeout(look, 200);
     };
     look();
     return () => {
       cancelled = true;
-      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
     };
   }, [phase]);
-
-  /* Phones keep Excalidraw's own mobile tool row: it is already sized for the
-     small island, and floating it would push the row past the screen edge. */
-  const phoneRow = () => window.matchMedia("(max-width: 560px)").matches;
 
   useEffect(() => {
     if (phase !== "ready" || phoneRow()) return undefined;
