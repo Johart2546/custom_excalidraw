@@ -658,7 +658,8 @@ try {
   .shot img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
   .placeholder { color: var(--muted); font-size: 12px; }
   .body { display: flex; flex-direction: column; gap: 3px; padding: 12px 13px 13px; }
-  h2 { margin: 0; font-size: 14.5px; font-weight: 600; line-height: 1.35; }
+  /* long board names should wrap inside the card, not get sliced at its edge */
+  h2 { margin: 0; font-size: 14.5px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
   .sub { margin: 0; color: var(--muted); font-size: 12px; }
   .meta {
     margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.45;
