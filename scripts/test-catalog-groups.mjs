@@ -198,7 +198,7 @@ const G4 = "grp_1234abcd"; // created by the UI during the run
 function createStub(siteDir, slugs) {
   const state = {
     log: [],
-    inlineGroupId: false,
+    inlineGroupId: true, // merged backend: every board carries groupId
     groups: [
       { id: G1, name: "ลูกค้า", color: "violet", createdAt: "2026-11-01T09:00:00.000Z", updatedAt: "2026-11-01T09:00:00.000Z" },
       { id: G2, name: "งานภายใน", color: "teal", createdAt: "2026-11-02T09:00:00.000Z", updatedAt: "2026-11-02T09:00:00.000Z" },
@@ -1237,25 +1237,9 @@ async function main() {
     await cdp.reload();
     await cdp.waitFor(`document.documentElement.getAttribute("data-theme") === "light"`, { label: "OS light default" });
 
-    /* --- 12. membership without per-card meta (inline groupId) ---------- */
-    stub.state.inlineGroupId = true;
-    const inlineMark = stub.state.log.length;
-    await cdp.reload();
-    await waitSettled(`${G1}:1|${G2}:0|__none__:2`, "sections after inline reload");
-    await sleep(400);
-    const inlineSections = await cdp.evaluate(`[...document.querySelectorAll(".board-section")].map((section) => [section.dataset.group, [...section.querySelectorAll(".card")].map((card) => card.dataset.slug)])`);
-    const inlineMetaCalls = stub.state.log
-      .slice(inlineMark)
-      .filter((entry) => entry.method === "GET" && /^\/api\/boards\/[^/]+\/meta$/.test(entry.path)).length;
-    check(
-      "when /api/boards carries groupId the page skips the per-card meta calls",
-      inlineMetaCalls === 0 &&
-        JSON.stringify(inlineSections) === JSON.stringify([[G1, [slugs[0]]], [G2, []], ["__none__", [slugs[2], slugs[1]]]]),
-      `meta calls=${inlineMetaCalls} sections=${JSON.stringify(inlineSections)}`,
-    );
+    /* --- 12. membership shapes ------------------------------------------ */
+    /* an older backend without groupId on /api/boards still works: one meta call per card */
     stub.state.inlineGroupId = false;
-
-    /* the documented contract (no groupId in /api/boards) uses per-card meta */
     const metaMark = stub.state.log.length;
     await cdp.reload();
     await waitSettled(`${G1}:1|${G2}:0|__none__:2`, "sections after meta reload");
@@ -1267,6 +1251,27 @@ async function main() {
       "without groupId in /api/boards the page falls back to GET /api/boards/:id/meta per card",
       metaCalls.length === 3 && JSON.stringify(metaCalls.map((entry) => entry.path).sort()) === JSON.stringify(slugs.map((slug) => `/api/boards/${slug}/meta`).sort()),
       `${metaCalls.length} meta calls`,
+    );
+
+    /* the merged backend: groupId on every board, so no per-card fetch at all */
+    stub.state.inlineGroupId = true;
+    const inlineMark = stub.state.log.length;
+    await cdp.reload();
+    await waitSettled(`${G1}:1|${G2}:0|__none__:2`, "sections after inline reload");
+    await sleep(400);
+    const inlineSections = await cdp.evaluate(`[...document.querySelectorAll(".board-section")].map((section) => [section.dataset.group, [...section.querySelectorAll(".card")].map((card) => card.dataset.slug)])`);
+    const inlineMetaCalls = stub.state.log
+      .slice(inlineMark)
+      .filter((entry) => entry.method === "GET" && /^\/api\/boards\/[^/]+\/meta$/.test(entry.path)).length;
+    const inlineNulls = stub.state.log.length > 0 ? await cdp.evaluate(`(() => {
+      const shown = [...document.querySelectorAll(".board-section")].filter((section) => !section.hidden).map((section) => section.dataset.group);
+      return { shown, nullCount: [...document.querySelectorAll(".card")].filter((card) => card.dataset.group === "").length };
+    })()`) : null;
+    check(
+      "when /api/boards carries groupId the page skips the per-card meta calls",
+      inlineMetaCalls === 0 &&
+        JSON.stringify(inlineSections) === JSON.stringify([[G1, [slugs[0]]], [G2, []], ["__none__", [slugs[2], slugs[1]]]]),
+      `meta calls=${inlineMetaCalls} sections=${JSON.stringify(inlineSections)} nulls=${JSON.stringify(inlineNulls)}`,
     );
 
     /* a backend without the groups API must not break the catalogue */
