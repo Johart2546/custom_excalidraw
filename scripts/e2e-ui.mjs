@@ -388,20 +388,25 @@ async function openEditor() {
     );
 
     const backChrome = await cdp.evaluate(`(() => {
-      const back = document.querySelector(".back-fab").getBoundingClientRect();
-      const menu = document.querySelector(".FixedSideContainer_side_top")?.getBoundingClientRect();
-      const presence = document.querySelector(".presence").getBoundingClientRect();
+      const mid = (el) => { const r = el.getBoundingClientRect(); return Math.round(r.top + r.height / 2); };
+      const back = document.querySelector(".back-fab");
+      const menu = document.querySelector(".dropdown-menu-button");
+      const presence = document.querySelector(".presence");
+      const backRect = back.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
       return {
-        back: [back.left, back.top, back.right, back.bottom].map(Math.round),
-        menuTop: menu ? Math.round(menu.top) : null,
-        presenceTop: Math.round(presence.top),
+        back: [backRect.left, backRect.top, backRect.right, backRect.bottom].map(Math.round),
+        backMid: mid(back), menuMid: mid(menu), presenceMid: mid(presence),
+        menuLeft: Math.round(menuRect.left), backRight: Math.round(backRect.right),
         vw: innerWidth,
       };
     })()`);
     check(
-      "back button alone occupies the top-left corner",
+      "back button, menu and avatars share one top band",
       backChrome.back[0] <= 16 && backChrome.back[1] <= 16 &&
-        backChrome.menuTop !== null && backChrome.back[3] <= backChrome.menuTop - 4,
+        Math.abs(backChrome.menuMid - backChrome.backMid) <= 2 &&
+        Math.abs(backChrome.presenceMid - backChrome.backMid) <= 2 &&
+        backChrome.menuLeft >= backChrome.backRight + 2,
       JSON.stringify(backChrome),
     );
 
@@ -437,13 +442,18 @@ async function openEditor() {
         left: r?.left ?? null,
         top: r?.top ?? null,
         bottom: r?.bottom ?? null,
-        backBottom: document.querySelector(".back-fab").getBoundingClientRect().bottom,
+        width: r?.width ?? 0,
+        mid: r ? Math.round(r.top + r.height / 2) : null,
+        backMid: (() => { const b = document.querySelector(".back-fab").getBoundingClientRect(); return Math.round(b.top + b.height / 2); })(),
+        presenceLeft: Math.round(document.querySelector(".presence").getBoundingClientRect().left),
       };
     })()`);
     check(
-      "drawing tools are a separate floating island",
+      "drawing tools are a separate floating island on the same line",
       toolsBefore.exists && toolsBefore.floating && toolsBefore.position === "fixed" &&
-        toolsBefore.grip && toolsBefore.fold && toolsBefore.top > toolsBefore.backBottom,
+        toolsBefore.grip && toolsBefore.fold &&
+        Math.abs(toolsBefore.mid - toolsBefore.backMid) <= 2 &&
+        toolsBefore.left + toolsBefore.width <= toolsBefore.presenceLeft,
       JSON.stringify(toolsBefore),
     );
 
@@ -517,8 +527,8 @@ async function openEditor() {
       return { count: all.length, all, vw: innerWidth };
     })()`);
     check(
-      "the board tools (table, minimap, lasso, diagram) share the slot and stay inside the row",
-      boardButtons.count === 4 && boardButtons.all.every((b) => b.inside && b.w > 20),
+      "the board tools (table, minimap, lasso) share the slot and stay inside the row",
+      boardButtons.count === 3 && boardButtons.all.every((b) => b.inside && b.w > 20),
       JSON.stringify(boardButtons),
     );
     check(
@@ -650,9 +660,9 @@ async function openEditor() {
       };
     })()`);
     check(
-      "mobile drawing tools stay on screen",
+      "mobile drawing tools stay on screen under the corner buttons",
       mobileTools.left >= 0 && mobileTools.right <= mobileTools.vw + 1 &&
-        mobileTools.width <= mobileTools.vw && mobileTools.top > 50,
+        mobileTools.width <= mobileTools.vw && mobileTools.top >= 44,
       JSON.stringify(mobileTools),
     );
     const mobilePresence = await cdp.evaluate(`(() => {
@@ -682,8 +692,8 @@ async function openEditor() {
       JSON.stringify(mobilePresence),
     );
     check(
-      "mobile drawing tools keep the table button inside the island",
-      mobilePresence.tableInside,
+      "phones use Excalidraw's own mobile row without the board buttons",
+      (await cdp.evaluate(`document.querySelectorAll(".App-toolbar .tools-table").length`)) === 0,
       JSON.stringify(mobilePresence),
     );
     check(
@@ -691,17 +701,22 @@ async function openEditor() {
       mobileTools.backLeft <= 10 && mobileTools.backTop <= 10,
       JSON.stringify({ left: mobileTools.backLeft, top: mobileTools.backTop }),
     );
-    await cdp.click(".tools-fold");
-    await cdp.waitFor(`document.querySelector(".shell").classList.contains("tools-collapsed")`, {
-      label: "mobile tools fold",
-    });
-    await cdp.click(".tools-launcher");
-    await cdp.waitFor(`!document.querySelector(".shell").classList.contains("tools-collapsed")`, {
-      label: "mobile tools unfold",
-    });
+    const mobileRow = await cdp.evaluate(`(() => {
+      const row = document.querySelector(".App-toolbar");
+      const r = row.getBoundingClientRect();
+      const back = document.querySelector(".back-fab").getBoundingClientRect();
+      const presence = document.querySelector(".presence").getBoundingClientRect();
+      return {
+        display: getComputedStyle(row).display,
+        top: Math.round(r.top),
+        fits: r.left >= 0 && r.right <= document.documentElement.clientWidth + 1,
+        clearOfCorners: r.top >= Math.max(back.bottom, presence.bottom),
+      };
+    })()`);
     check(
-      "mobile tools fold and come back",
-      (await cdp.evaluate(`getComputedStyle(document.querySelector(".App-toolbar")).display`)) !== "none",
+      "the mobile row keeps its own line under the corner buttons",
+      mobileRow.display !== "none" && mobileRow.fits && mobileRow.clearOfCorners,
+      JSON.stringify(mobileRow),
     );
     await cdp.viewport(null);
 

@@ -288,10 +288,24 @@ body {
   box-shadow: 0 8px 24px rgba(31, 36, 71, 0.1);
 }
 
-/* the back button owns the top-left corner; leave Excalidraw's own top
-   islands below it so its menu and shape toolbar stay clickable */
+/* One top band: the back button draws its 40 px pill at 10..50, so Excalidraw's
+   own islands centre on the same line instead of hanging 52 px below it. */
 .canvas .excalidraw .FixedSideContainer_side_top {
-  margin-top: 52px;
+  margin-top: 0;
+  top: 10px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+}
+/* flex would shrink the island row to its content width; keep it full width so
+   the shape panel stays centred and the presence pill stays on the right */
+.canvas .excalidraw .FixedSideContainer_side_top > .App-menu_top {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* the menu button would land under the back button: start the left stack after it */
+.canvas .excalidraw .App-menu_top .App-menu_top__left {
+  margin-left: 46px;
 }
 
 /* The drawing-tool island is moved out of Excalidraw's top grid and becomes a
@@ -772,44 +786,91 @@ code {
   }
 }
 
-/* The card's own hide button only exists on phones, where the tools row has no
-   room for the minimap toggle. */
-.minimap-hide {
-  display: none;
+/* Folding the card: the chevron sits in the footer's right corner, and the
+   folded state is a pill with the same metrics as the tools launcher. */
+.minimap-fold {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--glass-line);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--muted);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(23, 25, 46, 0.12);
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.minimap-fold:hover {
+  background: #fff;
+  color: var(--ink);
+}
+.minimap-fold:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.minimap-pill {
+  position: absolute;
+  left: 14px;
+  bottom: 54px;
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 11px 0 9px;
+  border: 1px solid var(--glass-line);
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.6));
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--shadow);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease;
+}
+.minimap-pill:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.88);
+}
+.minimap-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* phones: keep the card small and clear of the zoom footer */
 @media (max-width: 560px) {
   /* the tools row fits the table button and nothing more: two extra 29px
      buttons push the fold control past the island edge, so the minimap and
-     lasso toggles step aside and the card hides itself instead. */
+     lasso toggles step aside and the card folds to its pill instead. */
   .tools-minimap,
-  .tools-lasso,
-  .tools-diagram {
+  .tools-lasso {
     display: none;
   }
-  .minimap-hide {
-    position: absolute;
-    top: -7px;
-    right: -7px;
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border: 1px solid var(--glass-line);
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.94);
-    color: var(--muted);
-    font: inherit;
-    font-size: 14px;
-    line-height: 1;
-    cursor: pointer;
-    box-shadow: 0 1px 3px rgba(23, 25, 46, 0.12);
+  /* phones keep the back button and the avatars in the corners, so the tool
+     row still needs its own line under them */
+  .canvas .excalidraw .FixedSideContainer_side_top {
+    top: 50px;
+    height: 34px;
   }
-  .minimap-hide:hover {
-    color: var(--ink);
-    background: #fff;
+  .canvas .excalidraw .App-menu_top .App-menu_top__left {
+    margin-left: 0;
+  }
+  .minimap-pill {
+    left: 8px;
+    bottom: 48px;
+    height: 31px;
+    font-size: 11.5px;
   }
   .minimap {
     left: 8px;

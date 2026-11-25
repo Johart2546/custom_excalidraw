@@ -219,7 +219,7 @@ function paintElement(ctx, element, scale) {
   ctx.restore();
 }
 
-export default function Minimap({ apiRef, visible = true, onDismiss }) {
+export default function Minimap({ apiRef, visible = true, folded = false, onToggle }) {
   const canvasRef = useRef(null);
   const zoomRef = useRef(null);
   const mapRef = useRef(null); // last transform, reused for pointer maths
@@ -292,7 +292,7 @@ export default function Minimap({ apiRef, visible = true, onDismiss }) {
   /* Subscribe to the editor once its API ref exists, and redraw at most once
      per animation frame however chatty onChange is. */
   useEffect(() => {
-    if (!visible) return undefined;
+    if (!visible || folded) return undefined;
     let disposed = false;
     let attachFrame = 0;
     let drawFrame = 0;
@@ -354,12 +354,12 @@ export default function Minimap({ apiRef, visible = true, onDismiss }) {
       dropDpr();
       window.removeEventListener("resize", schedule);
     };
-  }, [visible, apiRef, draw]);
+  }, [visible, folded, apiRef, draw]);
 
   /* Click / drag inside the card: put that scene point in the middle of the
      editor without touching the zoom. */
   useEffect(() => {
-    if (!visible) return undefined;
+    if (!visible || folded) return undefined;
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
     let frame = 0;
@@ -443,9 +443,29 @@ export default function Minimap({ apiRef, visible = true, onDismiss }) {
       canvas.removeEventListener("pointercancel", onUp);
       canvas.classList.remove("dragging");
     };
-  }, [visible, apiRef]);
+  }, [visible, folded, apiRef]);
 
   if (!visible) return null;
+
+  // Folded: a small pill in the same corner, one click brings the map back.
+  if (folded) {
+    return (
+      <button
+        type="button"
+        className="minimap-pill"
+        onClick={onToggle}
+        aria-expanded={false}
+        aria-label="ขยายแผนที่ย่อ"
+        title="ขยายแผนที่ย่อ"
+      >
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 4 4 6.5v13L9 17l6 3 5-2.5v-13L15 7 9 4Z" />
+          <path d="M9 4v13M15 7v13" />
+        </svg>
+        <span>แผนที่</span>
+      </button>
+    );
+  }
 
   return (
     <div className="minimap" title="แผนที่ย่อ · คลิกหรือลากเพื่อเลื่อนมุมมอง">
@@ -456,11 +476,18 @@ export default function Minimap({ apiRef, visible = true, onDismiss }) {
           100%
         </span>
       </div>
-      {onDismiss && (
-        <button type="button" className="minimap-hide" onClick={onDismiss} aria-label="ซ่อนแผนที่ย่อ" title="ซ่อนแผนที่ย่อ">
-          ×
-        </button>
-      )}
+      <button
+        type="button"
+        className="minimap-fold"
+        onClick={onToggle}
+        aria-expanded
+        aria-label="ย่อแผนที่ย่อ"
+        title="ย่อแผนที่ย่อ"
+      >
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
     </div>
   );
 }

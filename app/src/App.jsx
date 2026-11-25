@@ -6,7 +6,6 @@ import TableBuilder from "./TableBuilder.jsx";
 import GridOverlay from "./GridOverlay.jsx";
 import Minimap from "./Minimap.jsx";
 import LassoTool from "./tools/LassoTool.jsx";
-import DiagramTool from "./tools/DiagramTool.jsx";
 import {
   attachCellText,
   buildGrid,
@@ -205,6 +204,7 @@ function themeOf(appState) {
    anywhere, and fold them away when the canvas needs the room. */
 const TOOLS_KEY = "boards-tools";
 const MINIMAP_KEY = "boards-minimap";
+const MINIMAP_FOLD_KEY = "boards-minimap-fold";
 const TOOLS_MARGIN = 8;
 
 function readToolsPrefs() {
@@ -259,10 +259,22 @@ export default function App() {
       /* private mode: the toggle still works for this session */
     }
   }, [minimapOn]);
-  /* Phones have no room for the minimap toggle in the tools row, so the card
-     carries its own hide button there. That only snoozes it for the session:
-     the stored preference still brings it back on the next load. */
-  const [minimapSnoozed, setMinimapSnoozed] = useState(false);
+  /* The card folds down to a pill the way the drawing tools do, so it can get
+     out of the way without losing the board's place. */
+  const [minimapFolded, setMinimapFolded] = useState(() => {
+    try {
+      return window.localStorage.getItem(MINIMAP_FOLD_KEY) === "on";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(MINIMAP_FOLD_KEY, minimapFolded ? "on" : "off");
+    } catch {
+      /* private mode: folding still works for this session */
+    }
+  }, [minimapFolded]);
   // DOM slot inside Excalidraw's top-right menu row (next to Library), when that
   // row exists. Phones have no such row, so the stack falls back to the corner.
   const [presenceHost, setPresenceHost] = useState(null);
@@ -397,8 +409,12 @@ export default function App() {
     };
   }, [phase]);
 
+  /* Phones keep Excalidraw's own mobile tool row: it is already sized for the
+     small island, and floating it would push the row past the screen edge. */
+  const phoneRow = () => window.matchMedia("(max-width: 560px)").matches;
+
   useEffect(() => {
-    if (phase !== "ready") return undefined;
+    if (phase !== "ready" || phoneRow()) return undefined;
     const el = canvasRef.current?.querySelector(".App-toolbar");
     if (!el) return undefined;
     const stack = el.querySelector(":scope > .Stack.Stack_horizontal") || el.querySelector(".Stack.Stack_horizontal");
@@ -452,6 +468,23 @@ export default function App() {
         y: Math.min(Math.max(TOOLS_MARGIN, y), Math.max(TOOLS_MARGIN, viewH - rect.height - TOOLS_MARGIN)),
       };
     };
+
+    // The avatar pill shares this band on the right. On narrower screens the
+    // centred tools row would slide under it, so nudge the row clear once the
+    // pill exists (and again on resize) unless someone dragged it.
+    const keepClear = () => {
+      if (toolsDragRef.current) return;
+      const pill = document.querySelector(".presence");
+      if (!pill) return;
+      const rect = el.getBoundingClientRect();
+      const limit = pill.getBoundingClientRect().left - TOOLS_MARGIN;
+      if (rect.right <= limit) return;
+      const next = clampPoint(limit - rect.width, rect.top);
+      el.style.left = `${next.x}px`;
+      setToolsPos(next);
+    };
+    const clearTimer = window.setTimeout(keepClear, 800);
+    window.addEventListener("resize", keepClear);
 
     const onDown = (event) => {
       if (event.button !== 0) return;
@@ -512,6 +545,8 @@ export default function App() {
 
     return () => {
       observer.disconnect();
+      window.clearTimeout(clearTimer);
+      window.removeEventListener("resize", keepClear);
       grip.removeEventListener("pointerdown", onDown);
       grip.removeEventListener("pointermove", onMove);
       grip.removeEventListener("pointerup", onUp);
@@ -530,6 +565,16 @@ export default function App() {
       if (toolsRef.current === el) toolsRef.current = null;
     };
   }, [phase, resetToolsPosition, toolsEpoch]);
+
+  /* Crossing the phone line swaps in Excalidraw's mobile row, so the float effect
+     has to run again (float on desktop, clean up on phones). */
+  useEffect(() => {
+    if (phase !== "ready") return undefined;
+    const query = window.matchMedia("(max-width: 560px)");
+    const onChange = () => setToolsEpoch((epoch) => epoch + 1);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, [phase]);
 
   /* The avatar stack lives in Excalidraw's own top-right menu row, immediately
      left of the Library button. That row is unmounted on phones, so the stack
@@ -1276,7 +1321,6 @@ export default function App() {
           tableSlot,
         )}
       <LassoTool apiRef={apiRef} canvasRef={canvasRef} host={tableSlot} />
-      <DiagramTool apiRef={apiRef} host={tableSlot} />
       <a className="back-fab" href="/" aria-label="กลับไปหน้ารวมกระดาน" title="กลับไปหน้ารวมกระดาน">
         <IconBack />
       </a>
@@ -1297,7 +1341,7 @@ export default function App() {
           }}
         />
         <GridOverlay apiRef={apiRef} canvasRef={canvasRef} activeCell={activeCell} />
-        <Minimap apiRef={apiRef} visible={minimapOn && !minimapSnoozed} onDismiss={() => setMinimapSnoozed(true)} />
+        <Minimap apiRef={apiRef} visible={minimapOn} folded={minimapFolded} onToggle={() => setMinimapFolded((folded) => !folded)} />
       </div>
 
       {toolsReady && toolsCollapsed && toolsPos && (
