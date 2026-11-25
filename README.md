@@ -171,6 +171,7 @@ app/                    # ตัวแอป (React + @excalidraw/excalidraw 0.1
   Dockerfile            # multi-stage: vite build -> node:24-slim (build context = repo root)
 gallery/
   scenes/               # ← กระดานทั้งหมด: scenes/<id>/scene.excalidraw (ไดเรกทอรีเดียวกับที่ API อ่าน/เขียน)
+    .groups.json        # หมวดหมู่กระดาน (ชื่อ+สี) ไฟล์เดียว — ไม่ถูกนับเป็นกระดาน
   build.mjs             # สแกน scenes/<id>/ -> พรีวิว PNG + catalog (index.html)
   site/                 # ผลลัพธ์ของ build.mjs (ไม่ commit)
 docker/nginx.conf       # nginx ของ image ทางการ (เก็บไว้ใช้ถ้าอยากได้แค่ static)
@@ -188,9 +189,11 @@ scripts/migrate-scenes.mjs    # ย้ายกระดานรุ่นไฟ
   ```
   gallery/scenes/<id>/
     scene.excalidraw               ← ไฟล์ที่ editor อ่าน/เขียน (JSON มาตรฐานของ Excalidraw)
-    meta.json                      ← ชื่อ/คำอธิบาย (ไม่มีก็ได้)
+    meta.json                      ← ชื่อ/คำอธิบาย/หมวดหมู่ (ไม่มีก็ได้)
     history/<เวลา ISO>.excalidraw  ← สำเนาก่อนถูกเขียนทับ (เก่าสุดอยู่ต้นชื่อ)
   ```
+
+- **หมวดหมู่กระดาน (groups)** เก็บรวมที่ `gallery/scenes/.groups.json` ไฟล์เดียว (ชื่อขึ้นต้นด้วยจุด จึงไม่ถูกนับเป็นกระดานและไม่ถูกอ่านเป็นการ์ด) — ดูหัวข้อ “หมวดหมู่กระดาน (groups)”; `cp -a gallery/scenes …` ติดไปด้วยอยู่แล้ว
 
 - container mount `./gallery/scenes` → `/data` และ `./gallery/site` → `/gallery` แบบอ่าน/เขียน (คอนเทนเนอร์เขียน `index.html`/`manifest.json` เอง) — โครงสร้างนี้อยู่บน host ตรง ๆ ไม่มีฐานข้อมูลให้ backup; จะย้ายเครื่องก็คัดลอกโฟลเดอร์ `gallery/scenes` ทั้งก้อน
 - ทุกครั้งที่บันทึก เซิร์ฟเวอร์จะ
@@ -332,6 +335,26 @@ node gallery/build.mjs --no-render # แค่สร้าง index.html (เร
 ชื่อถูกเก็บใน sidecar `gallery/scenes/<id>/meta.json` (คีย์ `title`) ไม่แตะไฟล์ scene — ล้างช่องให้ว่างแล้วบันทึก = กลับไปใช้ id เป็นชื่อ
 คนอื่นที่เปิดกระดานเดียวกันอยู่จะเห็นชื่อใหม่ทันทีผ่าน WebSocket (`{type:"meta"}`); หน้า catalog อัปเดตการ์ดจาก `/api/boards` ทันทีที่โหลดหน้า (ไม่ต้อง build ใหม่) — ภาพตัวอย่างยังรอ `node gallery/build.mjs` รอบถัดไป
 
+## หมวดหมู่กระดาน (groups)
+
+จัดกระดานเป็นหมวดหมู่ (ชื่อ + สี) ได้จากหน้า catalog — เก็บรวมเป็นไฟล์เดียว `gallery/scenes/.groups.json` ไม่มีไฟล์ = ยังไม่มีหมวดหมู่ (อ่านอย่างเดียวไม่สร้างไฟล์) และถ้าไฟล์พัง เซิร์ฟเวอร์จะ log คำเตือนแล้วมองว่าไม่มีหมวดหมู่ (ไม่ล้ม):
+
+```json
+{
+  "version": 1,
+  "groups": [
+    { "id": "grp_ab12cd34", "name": "ลูกค้า", "color": "violet",
+      "createdAt": "2026-11-25T14:00:00.000Z", "updatedAt": "2026-11-25T14:00:00.000Z" }
+  ]
+}
+```
+
+- `id` = `grp_` + hex 8 ตัว (เซิร์ฟเวอร์สร้างให้), `name` ยาว 1–40 ตัวอักษรและห้ามซ้ำแบบไม่สนตัวพิมพ์ (ซ้ำ = 409), `color` เลือกจาก `violet` `blue` `teal` `amber` `rose` `slate` (ไม่ใส่ = `violet`; ค่าอื่น = 400)
+- กระดานอยู่หมวดไหนเก็บใน `meta.json` ของกระดานนั้น (`"groupId": "grp_…"`; ไม่มีคีย์หรือ `null` = ไม่มีหมวด) — เขียน `groupId` ที่ไม่มีอยู่จริงไม่ได้ (404)
+- ลบหมวด = กระดานทุกใบในหมวดนั้นกลับเป็นไม่มีหมวด (`groupId: null`) โดยไม่แตะชื่อ/คำอธิบาย/แท็ก
+- ลำดับหมวดหมู่ = ลำดับใน array (หมวดใหม่ต่อท้าย); `count` ใน `GET /api/groups` นับจากกระดานจริงบนดิสก์
+- เปลี่ยนหมวด/ชื่อ/สี/ลบ ผ่าน `/api/groups` (ตาราง API ด้านล่าง) — เซิร์ฟเวอร์สั่งสร้าง catalog ใหม่ให้เองเหมือนการเปลี่ยนชื่อกระดาน
+
 ## ลบกระดาน
 
 ลบได้จาก **หน้า catalog เท่านั้น** (ในหน้า board ไม่มีปุ่มลบ):
@@ -363,8 +386,12 @@ node gallery/build.mjs
 | PUT | `/api/boards/:id` | เขียนทับ (validate `type === "excalidraw"`, `elements` เป็น array) |
 | GET | `/api/boards/:id/history` | snapshot ที่เก็บอยู่ `{id, keep, history:[{name,bytes,savedAt}]}` — ใหม่สุดก่อน, ไม่มี path ของเครื่อง |
 | GET | `/api/boards/:id/meta` | ชื่อ/คำอธิบาย `{id,title,subtitle,tags}` — `title` ว่างแปลว่าใช้ `id` |
-| PATCH | `/api/boards/:id/meta` | เปลี่ยนชื่อ body `{"title":"..."}` — trim, ≤120 ตัวอักษร, `""` = ล้างชื่อ; broadcast `{type:"meta", id, title, subtitle, tags}` |
+| PATCH | `/api/boards/:id/meta` | เปลี่ยนชื่อ/หมวด body `{"title":"..."}` และ/หรือ `{"groupId":"grp_…"}` — trim, ≤120 ตัวอักษร, `""` = ล้างชื่อ; `groupId` เป็น `null`/`""` = ออกจากหมวด (id ที่ไม่มีจริง = 404); broadcast `{type:"meta", id, title, subtitle, tags}` |
 | DELETE | `/api/boards/:id` | ลบทั้งโฟลเดอร์ `<id>/` (scene + `meta.json` + `history/`) แล้วแจ้งทุก socket ที่เปิดกระดานนั้น (`{type:"deleted"}`) |
+| GET | `/api/groups` | หมวดหมู่ทั้งหมด `{groups:[{id,name,color,createdAt,updatedAt,count}]}` — เรียงตามลำดับที่เก็บ, `count` = จำนวนกระดานในหมวดนั้น |
+| POST | `/api/groups` | สร้างหมวด body `{"name":"...","color":"..."}` (`color` ไม่ใส่ = `violet`) คืน `201 {group}`; ชื่อซ้ำ (ไม่สนตัวพิมพ์) 409, ค่าไม่ถูกต้อง 400 |
+| PATCH | `/api/groups/:id` | เปลี่ยนชื่อและ/หรือสี body `{"name":"...","color":"..."}` คืน `200 {group}`; ไม่มี id 404, ชื่อซ้ำ 409, ค่าไม่ถูกต้อง 400 |
+| DELETE | `/api/groups/:id` | ลบหมวด คืน `200 {"deleted":"grp_…","moved":N}` — กระดาน N ใบในหมวดนั้นกลับเป็นไม่มีหมวด (`"groupId": null`), id ไม่มีจริง 404 |
 
 `id` ต้องตรง `/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/`; static (`/gallery/`, shell) กัน traversal ด้วย `within(root, rel)` และ `/scenes/…` รับเฉพาะ id ที่ผ่าน `ID_RE` แล้วเสิร์ฟไฟล์ของกระดานนั้นเท่านั้น (`/scenes/<id>/history/…` จึงโหลดไม่ได้)
 
