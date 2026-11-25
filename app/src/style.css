@@ -687,3 +687,107 @@ code {
     font-size: 11px;
   }
 }
+
+/* Minimap: a live miniature of the board, in the bottom-left corner above the
+   zoom footer. It mirrors the .panel glass so it reads as board chrome. */
+.minimap {
+  position: absolute;
+  left: 14px;
+  bottom: 54px;
+  width: 200px;
+  z-index: 5;
+  border: 1px solid var(--glass-line);
+  border-radius: 9px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.56));
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.minimap-map {
+  display: block;
+  width: 100%;
+  height: 118px;
+  cursor: grab;
+  touch-action: none;
+}
+.minimap-map.dragging {
+  cursor: grabbing;
+}
+.minimap-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 22px;
+  padding: 0 9px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+}
+.minimap-zoom {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+/* Same metrics as .tools-table so the two buttons sit as one pair in the row. */
+.tools-minimap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  border: 0;
+  border-radius: 6.5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  touch-action: none;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.tools-minimap:hover {
+  background: rgba(0, 0, 0, 0.055);
+}
+.tools-minimap:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.tools-minimap.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .minimap {
+    background: rgba(250, 251, 255, 0.96);
+  }
+}
+
+/* phones: keep the card small and clear of the zoom footer */
+@media (max-width: 560px) {
+  .minimap {
+    left: 8px;
+    bottom: 48px;
+    width: 148px;
+    border-radius: 8px;
+  }
+  .minimap-map {
+    height: 92px;
+  }
+  .minimap-foot {
+    padding: 0 7px;
+    font-size: 11px;
+  }
+  .minimap-zoom {
+    font-size: 11px;
+  }
+}

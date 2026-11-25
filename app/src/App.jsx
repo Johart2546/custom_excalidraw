@@ -4,6 +4,7 @@ import { Excalidraw } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import TableBuilder from "./TableBuilder.jsx";
 import GridOverlay from "./GridOverlay.jsx";
+import Minimap from "./Minimap.jsx";
 import {
   attachCellText,
   buildGrid,
@@ -50,6 +51,15 @@ const IconTable = () => (
     <rect x="2.4" y="3.4" width="12.6" height="12.2" rx="2.1" />
     <path d="M2.4 7.3h12.6M6.6 7.3v8.3M10.8 7.3v8.3" />
     <path d="M19.6 15.6v5.6M16.8 18.4h5.6" strokeWidth={2.1} />
+  </svg>
+);
+
+/* Same metrics as the table button: a map frame with the viewport inside. */
+const IconMinimap = () => (
+  <svg {...icon} width={17} height={17} strokeWidth={1.6}>
+    <rect x="2.4" y="3.6" width="14.4" height="12.8" rx="2.1" />
+    <path d="M2.4 9.2h5.1v7.2M12.2 3.6v5.4h4.6" />
+    <rect x="12.6" y="11.4" width="5.4" height="4.4" rx="1" strokeWidth={1.4} />
   </svg>
 );
 
@@ -192,6 +202,7 @@ function themeOf(appState) {
 /* The drawing tools float above the canvas: drag the little grip to move them
    anywhere, and fold them away when the canvas needs the room. */
 const TOOLS_KEY = "boards-tools";
+const MINIMAP_KEY = "boards-minimap";
 const TOOLS_MARGIN = 8;
 
 function readToolsPrefs() {
@@ -231,6 +242,21 @@ export default function App() {
   const [toolsEpoch, setToolsEpoch] = useState(0);
   // DOM slot inside the drawing tools row; the table button is portalled into it.
   const [tableSlot, setTableSlot] = useState(null);
+  // the minimap is on unless someone turned it off; the choice survives a reload
+  const [minimapOn, setMinimapOn] = useState(() => {
+    try {
+      return window.localStorage.getItem(MINIMAP_KEY) !== "off";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(MINIMAP_KEY, minimapOn ? "on" : "off");
+    } catch {
+      /* private mode: the toggle still works for this session */
+    }
+  }, [minimapOn]);
   // DOM slot inside Excalidraw's top-right menu row (next to Library), when that
   // row exists. Phones have no such row, so the stack falls back to the corner.
   const [presenceHost, setPresenceHost] = useState(null);
@@ -1219,16 +1245,28 @@ export default function App() {
       {presenceHost ? createPortal(presenceNode, presenceHost) : presenceNode}
       {tableSlot &&
         createPortal(
-          <button
-            type="button"
-            className={`tools-table${panelOpen ? " active" : ""}`}
-            onClick={() => setPanelOpen((v) => !v)}
-            aria-label="เปิดตัวสร้างตาราง"
-            aria-pressed={panelOpen}
-            title="สร้าง/แก้ตาราง"
-          >
-            <IconTable />
-          </button>,
+          <>
+            <button
+              type="button"
+              className={`tools-table${panelOpen ? " active" : ""}`}
+              onClick={() => setPanelOpen((v) => !v)}
+              aria-label="เปิดตัวสร้างตาราง"
+              aria-pressed={panelOpen}
+              title="สร้าง/แก้ตาราง"
+            >
+              <IconTable />
+            </button>
+            <button
+              type="button"
+              className={`tools-minimap${minimapOn ? " active" : ""}`}
+              onClick={() => setMinimapOn((v) => !v)}
+              aria-label={minimapOn ? "ซ่อนแผนที่ย่อ" : "แสดงแผนที่ย่อ"}
+              aria-pressed={minimapOn}
+              title={minimapOn ? "ซ่อนแผนที่ย่อ" : "แสดงแผนที่ย่อ"}
+            >
+              <IconMinimap />
+            </button>
+          </>,
           tableSlot,
         )}
       <a className="back-fab" href="/" aria-label="กลับไปหน้ารวมกระดาน" title="กลับไปหน้ารวมกระดาน">
@@ -1251,6 +1289,7 @@ export default function App() {
           }}
         />
         <GridOverlay apiRef={apiRef} canvasRef={canvasRef} activeCell={activeCell} />
+        <Minimap apiRef={apiRef} visible={minimapOn} />
       </div>
 
       {toolsReady && toolsCollapsed && toolsPos && (
