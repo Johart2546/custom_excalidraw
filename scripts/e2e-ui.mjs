@@ -178,6 +178,51 @@ class CDP {
     return box;
   }
 
+  async drag(selector, dx, dy) {
+    const box = await this.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return null;
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })()`);
+    if (!box) throw new Error(`drag: no box for ${selector}`);
+    await this.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: box.x,
+      y: box.y,
+      button: "none",
+      buttons: 0,
+    });
+    await this.send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: box.x,
+      y: box.y,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+    });
+    for (let step = 1; step <= 8; step += 1) {
+      await this.send("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: box.x + (dx * step) / 8,
+        y: box.y + (dy * step) / 8,
+        button: "left",
+        buttons: 1,
+      });
+      await sleep(16);
+    }
+    await this.send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: box.x + dx,
+      y: box.y + dy,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+    });
+    return box;
+  }
+
   async type(text) {
     await this.send("Input.insertText", { text });
   }
@@ -367,7 +412,18 @@ async function saveTitleWith(trigger) {
       /blur/.test(editorGlass.barBlur || "") && /rgba\(255, 255, 255/.test(editorGlass.barBg),
       `${editorGlass.barBlur} / ${editorGlass.barBg}`,
     );
-    check("canvas has rounded glass frame", editorGlass.canvasRadius === "18px", editorGlass.canvasRadius);
+    const canvasRect = await cdp.evaluate(`(() => {
+      const r = document.querySelector(".canvas").getBoundingClientRect();
+      return { left: r.left, top: r.top, width: r.width, height: r.height, vw: innerWidth, vh: innerHeight };
+    })()`);
+    check(
+      "canvas fills the page",
+      canvasRect.left === 0 &&
+        canvasRect.top === 0 &&
+        Math.abs(canvasRect.width - canvasRect.vw) <= 1 &&
+        Math.abs(canvasRect.height - canvasRect.vh) <= 1,
+      JSON.stringify(canvasRect),
+    );
 
     const barRect = await cdp.evaluate(`(() => {
       const r = document.querySelector(".bar").getBoundingClientRect();
@@ -396,6 +452,83 @@ async function saveTitleWith(trigger) {
       JSON.stringify(overlay),
     );
     check("rename pencil is visible", Number(editorGlass.pencilOpacity) >= 0.65, editorGlass.pencilOpacity);
+
+    const toolbarBefore = await cdp.evaluate(`(() => {
+      const r = document.querySelector(".bar").getBoundingClientRect();
+      return { left: r.left, top: r.top };
+    })()`);
+    await cdp.drag(".bar-grip", 90, 60);
+    await sleep(180);
+    const toolbarAfter = await cdp.evaluate(`(() => {
+      const r = document.querySelector(".bar").getBoundingClientRect();
+      return { left: r.left, top: r.top, vw: innerWidth, vh: innerHeight, w: r.width, h: r.height };
+    })()`);
+    check(
+      "floating toolbar can be dragged",
+      toolbarAfter.left > toolbarBefore.left + 40 && toolbarAfter.top > toolbarBefore.top + 30,
+      JSON.stringify({ toolbarBefore, toolbarAfter }),
+    );
+    check(
+      "dragged toolbar stays on screen",
+      toolbarAfter.left >= 0 &&
+        toolbarAfter.top >= 0 &&
+        toolbarAfter.left + toolbarAfter.w <= toolbarAfter.vw &&
+        toolbarAfter.top + toolbarAfter.h <= toolbarAfter.vh,
+      JSON.stringify(toolbarAfter),
+    );
+
+    await cdp.click(".bar-toggle");
+    await cdp.waitFor(`document.querySelector(".bar").classList.contains("collapsed")`, {
+      label: "toolbar fold",
+    });
+    const folded = await cdp.evaluate(`(() => {
+      const bar = document.querySelector(".bar");
+      const r = bar.getBoundingClientRect();
+      return {
+        width: r.width,
+        left: r.left,
+        top: r.top,
+        content: getComputedStyle(bar.querySelector(".bar-content")).display,
+        label: bar.querySelector(".bar-toggle").getAttribute("aria-label"),
+      };
+    })()`);
+    check(
+      "floating toolbar folds into a small pill",
+      folded.width < 110 && folded.content === "none" && folded.left > 40,
+      JSON.stringify(folded),
+    );
+    await cdp.drag(".bar-grip", 32, 22);
+    await sleep(160);
+    const foldedMoved = await cdp.evaluate(`(() => {
+      const r = document.querySelector(".bar").getBoundingClientRect();
+      return { left: r.left, top: r.top, width: r.width, collapsed: document.querySelector(".bar").classList.contains("collapsed") };
+    })()`);
+    check(
+      "folded toolbar can still be moved",
+      foldedMoved.collapsed && foldedMoved.left > folded.left + 15 && foldedMoved.top > folded.top + 10,
+      JSON.stringify({ folded, foldedMoved }),
+    );
+    await cdp.click(".bar-toggle");
+    await cdp.waitFor(`!document.querySelector(".bar").classList.contains("collapsed")`, {
+      label: "toolbar unfold",
+    });
+    const unfolded = await cdp.evaluate(`(() => {
+      const bar = document.querySelector(".bar");
+      return {
+        width: bar.getBoundingClientRect().width,
+        content: getComputedStyle(bar.querySelector(".bar-content")).display,
+      };
+    })()`);
+    check(
+      "floating toolbar expands again",
+      unfolded.width > 300 && unfolded.content !== "none",
+      JSON.stringify(unfolded),
+    );
+
+    // put it back before the mobile pass so the menu clearance check means something
+    await cdp.evaluate(`document.querySelector(".bar-grip").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`);
+    await sleep(300);
+    await cdp.evaluate(`localStorage.removeItem("boards-toolbar")`);
 
     await cdp.click(".title-btn");
     await cdp.waitFor(`!!document.querySelector(".title-input")`, { label: "inline rename" });
@@ -522,6 +655,143 @@ async function saveTitleWith(trigger) {
     await sleep(900);
     const live2 = await cdp.evaluate(`document.querySelector(".live")?.textContent?.trim()`);
     check("presence stays at one peer after reload", /1\s*คน/.test(live1) && /1\s*คน/.test(live2), `${live1} -> ${live2}`);
+
+    // Another client sends a sticky-like text and a pasted image over the board
+    // socket. The image binary lives in `files`, outside the element list; if we
+    // only merge elements the receiver shows a blank image and loses the file.
+    const sender = new WebSocket(`${BASE.replace(/^http/, "ws")}/ws/board/${BOARD}?sid=e2e-sender-1&name=Sender`);
+    await new Promise((resolve, reject) => {
+      sender.once("open", resolve);
+      sender.once("error", reject);
+    });
+    const before = (await api(`/api/boards/${BOARD}`)).body;
+    const stamp = Date.now();
+    const stickyRect = {
+      id: "e2e-sticky-rect",
+      type: "rectangle",
+      x: 40,
+      y: 320,
+      width: 220,
+      height: 140,
+      angle: 0,
+      strokeColor: "#1e1e1e",
+      backgroundColor: "#ffec99",
+      fillStyle: "solid",
+      strokeWidth: 2,
+      strokeStyle: "solid",
+      roughness: 1,
+      opacity: 100,
+      groupIds: [],
+      frameId: null,
+      roundness: { type: 3 },
+      seed: 21,
+      version: 1,
+      versionNonce: 21,
+      isDeleted: false,
+      boundElements: [{ type: "text", id: "e2e-sticky-text" }],
+      updated: stamp,
+      link: null,
+      locked: false,
+    };
+    const stickyText = {
+      id: "e2e-sticky-text",
+      type: "text",
+      x: 60,
+      y: 345,
+      width: 180,
+      height: 28,
+      angle: 0,
+      strokeColor: "#1e1e1e",
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      strokeWidth: 2,
+      strokeStyle: "solid",
+      roughness: 1,
+      opacity: 100,
+      groupIds: [],
+      frameId: null,
+      roundness: null,
+      seed: 22,
+      version: 1,
+      versionNonce: 22,
+      isDeleted: false,
+      boundElements: null,
+      updated: stamp,
+      link: null,
+      locked: false,
+      text: "สวัสดีจากอีกเครื่อง",
+      fontSize: 20,
+      fontFamily: 1,
+      textAlign: "left",
+      verticalAlign: "top",
+      containerId: "e2e-sticky-rect",
+      originalText: "สวัสดีจากอีกเครื่อง",
+      lineHeight: 1.25,
+      baseline: 18,
+    };
+    const imageFile = {
+      id: "e2e-remote-file",
+      mimeType: "image/png",
+      dataURL: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z4m0AAAAASUVORK5CYII=",
+      created: stamp,
+      lastRetrieved: stamp,
+    };
+    const image = {
+      id: "e2e-remote-image",
+      type: "image",
+      x: 320,
+      y: 320,
+      width: 120,
+      height: 120,
+      angle: 0,
+      strokeColor: "transparent",
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      strokeWidth: 2,
+      strokeStyle: "solid",
+      roughness: 1,
+      opacity: 100,
+      groupIds: [],
+      frameId: null,
+      roundness: null,
+      seed: 23,
+      version: 1,
+      versionNonce: 23,
+      isDeleted: false,
+      boundElements: null,
+      updated: stamp,
+      link: null,
+      locked: false,
+      fileId: imageFile.id,
+      status: "saved",
+      scale: [1, 1],
+      crop: null,
+    };
+    sender.send(JSON.stringify({
+      type: "update",
+      scene: {
+        ...before,
+        elements: [...(before.elements || []), stickyRect, stickyText, image],
+        files: { ...(before.files || {}), [imageFile.id]: imageFile },
+      },
+    }));
+    await cdp.waitFor(
+      `window.__boardsApi.getSceneElements().some((el) => el.id === "e2e-remote-image")`,
+      { label: "remote image element" },
+    );
+    const remote = await cdp.evaluate(`(() => {
+      const api = window.__boardsApi;
+      const els = api.getSceneElements();
+      const files = api.getFiles() || {};
+      return {
+        sticky: els.some((el) => el.id === "e2e-sticky-text" && el.text === "สวัสดีจากอีกเครื่อง"),
+        image: els.some((el) => el.id === "e2e-remote-image" && el.fileId === "e2e-remote-file"),
+        file: Boolean(files["e2e-remote-file"]?.dataURL),
+      };
+    })()`);
+    check("realtime receives a sticky note from another client", remote.sticky, JSON.stringify(remote));
+    check("realtime receives a pasted image with its file", remote.image && remote.file, JSON.stringify(remote));
+    sender.close();
 
     /* ----------------------------------------------------------- catalog */
     await cdp.navigate(`${BASE}/`);

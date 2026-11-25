@@ -69,6 +69,26 @@ const IconPlus = () => (
     <path d="M12 5v14M5 12h14" />
   </svg>
 );
+const IconGrip = () => (
+  <svg {...icon} width={14} height={14} fill="currentColor" stroke="none">
+    <circle cx="9" cy="6" r="1.6" />
+    <circle cx="15" cy="6" r="1.6" />
+    <circle cx="9" cy="12" r="1.6" />
+    <circle cx="15" cy="12" r="1.6" />
+    <circle cx="9" cy="18" r="1.6" />
+    <circle cx="15" cy="18" r="1.6" />
+  </svg>
+);
+const IconMinus = () => (
+  <svg {...icon}>
+    <path d="M5 12h14" />
+  </svg>
+);
+const IconMenu = () => (
+  <svg {...icon}>
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </svg>
+);
 
 function payloadFor(elements, appState, files) {
   const picked = {};
@@ -176,6 +196,24 @@ function themeOf(appState) {
   return appState && appState.theme === "dark" ? "dark" : "light";
 }
 
+/* The floating toolbar remembers where it was put and whether it is folded.
+   Bad or missing saved data simply falls back to the top-left corner. */
+const TOOLBAR_KEY = "boards-toolbar";
+const TOOLBAR_MARGIN = 6;
+
+function readToolbarPrefs() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(TOOLBAR_KEY) || "null");
+    return {
+      x: Number.isFinite(saved?.x) ? saved.x : 12,
+      y: Number.isFinite(saved?.y) ? saved.y : 10,
+      collapsed: saved?.collapsed === true,
+    };
+  } catch {
+    return { x: 12, y: 10, collapsed: false };
+  }
+}
+
 export default function App() {
   const boardId = useRef(readBoardId()).current;
 
@@ -193,6 +231,13 @@ export default function App() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleError, setTitleError] = useState("");
   const [theme, setTheme] = useState("light");
+  const toolbarPrefsRef = useRef(null);
+  if (!toolbarPrefsRef.current) toolbarPrefsRef.current = readToolbarPrefs();
+  const [toolbarPos, setToolbarPos] = useState(() => ({
+    x: toolbarPrefsRef.current.x,
+    y: toolbarPrefsRef.current.y,
+  }));
+  const [toolbarCollapsed, setToolbarCollapsed] = useState(toolbarPrefsRef.current.collapsed);
 
   const apiRef = useRef(null);
   const wsRef = useRef(null);
@@ -209,6 +254,9 @@ export default function App() {
   const goneRef = useRef(false);
   const editingTitleRef = useRef(false);
   const titleInputRef = useRef(null);
+  const barRef = useRef(null);
+  const toolbarDragRef = useRef(null);
+  const toolbarClickRef = useRef(false);
 
   /* ---------------------------------------------------------------- boot */
 
@@ -320,6 +368,128 @@ export default function App() {
     input.focus();
     input.select();
   }, [editingTitle]);
+
+  /* -------------------------------------------------------- floating toolbar */
+
+  const clampToolbar = useCallback(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const maxX = Math.max(TOOLBAR_MARGIN, window.innerWidth - rect.width - TOOLBAR_MARGIN);
+    const maxY = Math.max(TOOLBAR_MARGIN, window.innerHeight - rect.height - TOOLBAR_MARGIN);
+    setToolbarPos((pos) => {
+      const x = Math.min(Math.max(TOOLBAR_MARGIN, pos.x), maxX);
+      const y = Math.min(Math.max(TOOLBAR_MARGIN, pos.y), maxY);
+      return x === pos.x && y === pos.y ? pos : { x, y };
+    });
+  }, []);
+
+  // the bar changes width when it folds or the title goes into edit mode
+  useEffect(() => {
+    clampToolbar();
+  }, [clampToolbar, toolbarCollapsed, editingTitle]);
+
+  useEffect(() => {
+    const onResize = () => clampToolbar();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clampToolbar]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(
+          TOOLBAR_KEY,
+          JSON.stringify({ ...toolbarPos, collapsed: toolbarCollapsed }),
+        );
+      } catch {
+        /* private mode: remembering the spot is optional */
+      }
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [toolbarPos, toolbarCollapsed]);
+
+  const toggleToolbar = useCallback(() => {
+    if (toolbarClickRef.current) return;
+    // folding the bar while a name is being typed would hide the draft
+    if (editingTitleRef.current) void saveTitle(titleDraft);
+    setToolbarCollapsed((collapsed) => !collapsed);
+  }, [saveTitle, titleDraft]);
+
+  const resetToolbarPosition = useCallback(() => {
+    setToolbarPos({ x: 12, y: 10 });
+    window.requestAnimationFrame(() => clampToolbar());
+  }, [clampToolbar]);
+
+  const startToolbarDrag = useCallback((event) => {
+    if (event.button !== 0) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const control = target.closest("button, a, input, select, textarea");
+    // only the grip (or empty bar space) drags; the fold button must keep its click
+    if (control && !control.classList.contains("bar-grip")) return;
+    const el = barRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    toolbarDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: rect.left,
+      originY: rect.top,
+      moved: false,
+      captured: false,
+    };
+  }, []);
+
+  const moveToolbar = useCallback((event) => {
+    const drag = toolbarDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.moved) {
+      if (Math.abs(dx) + Math.abs(dy) < 5) return;
+      drag.moved = true;
+      const el = barRef.current;
+      if (el) {
+        try {
+          el.setPointerCapture(event.pointerId);
+          drag.captured = true;
+        } catch {
+          /* pointer already gone; window resize still clamps the bar */
+        }
+      }
+    }
+    const el = barRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const maxX = Math.max(TOOLBAR_MARGIN, window.innerWidth - rect.width - TOOLBAR_MARGIN);
+    const maxY = Math.max(TOOLBAR_MARGIN, window.innerHeight - rect.height - TOOLBAR_MARGIN);
+    setToolbarPos({
+      x: Math.min(Math.max(TOOLBAR_MARGIN, drag.originX + dx), maxX),
+      y: Math.min(Math.max(TOOLBAR_MARGIN, drag.originY + dy), maxY),
+    });
+  }, []);
+
+  const endToolbarDrag = useCallback((event) => {
+    const drag = toolbarDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    toolbarDragRef.current = null;
+    if (drag.moved) {
+      // a drag that ends on the fold button must not also toggle it
+      toolbarClickRef.current = true;
+      window.setTimeout(() => {
+        toolbarClickRef.current = false;
+      }, 0);
+    }
+    if (drag.captured) {
+      try {
+        barRef.current?.releasePointerCapture(event.pointerId);
+      } catch {
+        /* already released */
+      }
+    }
+  }, []);
 
   /* ---------------------------------------------------------------- saving */
 
@@ -462,6 +632,22 @@ export default function App() {
         if (next) applyRemote(next);
       }, 250);
       return;
+    }
+
+    // Images live outside the element list: an image element only points at a
+    // file id in `files`. Without the binary, the other side gets a blank image
+    // (and can reject the whole scene), so merge files before the elements.
+    const incomingFiles = remote.files && typeof remote.files === "object" ? remote.files : {};
+    const knownFiles = api.getFiles() || {};
+    const missingFiles = Object.values(incomingFiles).filter(
+      (file) => file && typeof file.id === "string" && !knownFiles[file.id],
+    );
+    if (missingFiles.length) {
+      try {
+        api.addFiles(missingFiles);
+      } catch (error) {
+        console.error("[live] files", error);
+      }
     }
 
     const local = api.getSceneElements();
@@ -816,7 +1002,25 @@ export default function App() {
 
   return (
     <div className={`shell${panelOpen ? " panel-open" : ""}${editingTitle ? " editing-title" : ""}`}>
-      <header className="bar">
+      <header
+        ref={barRef}
+        className={`bar${toolbarCollapsed ? " collapsed" : ""}`}
+        style={{ left: toolbarPos.x, top: toolbarPos.y }}
+        onPointerDown={startToolbarDrag}
+        onPointerMove={moveToolbar}
+        onPointerUp={endToolbarDrag}
+        onPointerCancel={endToolbarDrag}
+      >
+        <button
+          type="button"
+          className="bar-grip"
+          aria-label="ลากแถบเครื่องมือ"
+          title="ลากเพื่อย้าย · ดับเบิลคลิกเพื่อวางกลับมุมเดิม"
+          onDoubleClick={resetToolbarPosition}
+        >
+          <IconGrip />
+        </button>
+        <div className="bar-content">
         <a className="icon-btn" href="/" aria-label="กลับไปหน้ารวมกระดาน" title="กลับไปหน้ารวมกระดาน">
           <IconBack />
         </a>
@@ -935,6 +1139,17 @@ export default function App() {
         >
           <IconPlus />
           <span>ตาราง</span>
+        </button>
+        </div>
+        <button
+          type="button"
+          className="icon-btn bar-toggle"
+          aria-label={toolbarCollapsed ? "ขยายแถบเครื่องมือ" : "ย่อแถบเครื่องมือ"}
+          aria-expanded={!toolbarCollapsed}
+          title={toolbarCollapsed ? "ขยายแถบเครื่องมือ" : "ย่อแถบเครื่องมือ"}
+          onClick={toggleToolbar}
+        >
+          {toolbarCollapsed ? <IconMenu /> : <IconMinus />}
         </button>
       </header>
 

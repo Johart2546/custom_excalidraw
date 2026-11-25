@@ -63,12 +63,12 @@ body {
   z-index: 60;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   width: max-content;
   max-width: calc(100vw - 24px);
   height: var(--bar-h);
   margin: 0;
-  padding: 0 8px;
+  padding: 0 6px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.38));
   backdrop-filter: var(--blur);
   -webkit-backdrop-filter: var(--blur);
@@ -76,10 +76,66 @@ body {
   border-radius: 16px;
   box-shadow: 0 14px 38px rgba(31, 36, 71, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.76);
   font-size: 13px;
+  touch-action: none;
+  user-select: none;
+}
+
+.bar-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 
 .bar .spacer {
   flex: 1;
+}
+
+/* the grip is the drag handle in both states; the fold button stays a plain
+   click target so folding never turns into a drag */
+.bar-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+}
+.bar-grip:hover {
+  background: rgba(255, 255, 255, 0.52);
+  color: var(--ink);
+}
+.bar-grip:active {
+  cursor: grabbing;
+}
+.bar-grip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.bar-grip svg {
+  opacity: 0.58;
+}
+
+.bar-toggle {
+  flex: none;
+  width: 28px;
+  height: 28px;
+}
+
+.bar.collapsed {
+  gap: 2px;
+  padding: 0 5px;
+}
+.bar.collapsed .bar-content {
+  display: none;
 }
 
 /* icon-only button: back, copy link, download, panel close */
@@ -373,14 +429,11 @@ body {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  margin: 10px 14px 14px;
-  border: 1px solid var(--glass-line);
-  border-radius: 18px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.62);
-  box-shadow:
-    0 18px 48px rgba(31, 36, 71, 0.13),
-    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  background: #fff;
   isolation: isolate;
 }
 
@@ -398,7 +451,7 @@ body {
 /* the app toolbar floats over the canvas; leave the native Excalidraw
    top islands below it so the menu and shape toolbar stay clickable */
 .canvas .excalidraw .FixedSideContainer_side_top {
-  margin-top: 44px;
+  margin-top: 52px;
 }
 
 /* -------------------------------------------------------------------- panel */
@@ -602,20 +655,27 @@ code {
   .bar {
     top: 6px;
     left: 6px;
-    right: 6px;
-    width: auto;
+    right: auto;
+    width: calc(100vw - 12px);
     max-width: none;
     gap: 3px;
     margin: 0;
     padding: 0 6px;
     border-radius: 14px;
   }
+  .bar-content {
+    flex: 1 1 auto;
+  }
+  .bar.collapsed {
+    width: max-content;
+    padding: 0 5px;
+  }
   .panel {
     width: calc(100vw - 16px);
   }
   .canvas {
-    margin: 6px 6px 6px;
-    border-radius: 13px;
+    margin: 0;
+    border-radius: 0;
   }
   /* the bar has to give way: the title shrinks, the table button drops its label */
   .title-slot {
