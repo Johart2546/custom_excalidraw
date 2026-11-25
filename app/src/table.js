@@ -487,9 +487,31 @@ const clampInt = (value, lo, hi, fallback) => {
  * Bound text element for one cell, used when a grid is rebuilt and its cells
  * already hold text (a cell with no text carries no element at all).
  */
+/** Widest single word — the narrowest a wrapped line can become. */
+function longestWord(text, fontSize, fontFamily) {
+  let widest = 1;
+  for (const word of String(text).split(/\s+/)) {
+    if (!word) continue;
+    widest = Math.max(widest, measure(word, fontSize, fontFamily));
+  }
+  return widest;
+}
+
+/**
+ * Largest font size (8…20) whose longest word still fits `inner`.
+ * Narrow columns get smaller text instead of glyphs spilling into the next cell.
+ */
+export function fitFontSize(value, inner, prefer, fontFamily = FONT_SANS) {
+  let size = Math.max(8, Math.min(20, Math.round(prefer) || CELL_FONT));
+  while (size > 8 && longestWord(value, size, fontFamily) * 1.15 > inner) size -= 1;
+  return size;
+}
+
 export function attachCellText(cell, value, { groupIds = [], customData } = {}) {
-  const fontSize = Math.max(8, Math.min(20, Math.round(cell.height * 0.36)));
   const padX = Math.min(CELL_PAD_X, Math.max(4, cell.width * 0.12));
+  const innerWidth = Math.max(8, cell.width - padX * 2);
+  const preferred = Math.max(8, Math.min(20, Math.round(cell.height * 0.36)));
+  const fontSize = fitFontSize(value, innerWidth, preferred, FONT_SANS);
   const inner = text(cell.x + padX, cell.y + cell.height / 2 - (fontSize * LINE_HEIGHT) / 2, value, fontSize, FONT_SANS, {
     roughness: 0,
     groupIds,
@@ -499,7 +521,7 @@ export function attachCellText(cell, value, { groupIds = [], customData } = {}) 
   inner.verticalAlign = "middle";
   inner.autoResize = false;
   inner.textAlign = "left";
-  inner.width = round(Math.max(8, cell.width - padX * 2));
+  inner.width = round(innerWidth);
   inner.height = round(fontSize * LINE_HEIGHT);
   if (customData) inner.customData = customData;
   cell.boundElements = [{ id: inner.id, type: "text" }];
@@ -666,14 +688,17 @@ export function gridMetrics(elements, gridId) {
 /** Cell text after its cell moved or changed width: rewrapped and centred. */
 function refitCellText(el, box, rewrap) {
   const family = el.fontFamily ?? FONT_SANS;
-  const fontSize = el.fontSize || CELL_FONT;
   const padX = Math.min(CELL_PAD_X, Math.max(4, box.width * 0.12));
   const maxWidth = Math.max(8, box.width - padX * 2);
   const source = el.originalText ?? el.text ?? "";
+  let fontSize = el.fontSize || CELL_FONT;
   let width = el.width;
   let height = el.height;
   let value = el.text;
   if (rewrap) {
+    // the preferred size follows the cell height, so widening a column grows the text back
+    const preferred = Math.max(8, Math.min(20, Math.round(box.height * 0.36)));
+    fontSize = fitFontSize(source, maxWidth, preferred, family);
     const lines = wrap(source, maxWidth, fontSize, family);
     const widest = Math.max(...lines.map((line) => measure(line, fontSize, family)), 1);
     width = round(Math.min(maxWidth, widest));
@@ -687,6 +712,7 @@ function refitCellText(el, box, rewrap) {
     width: round(width),
     height: round(height),
     text: value,
+    fontSize,
   };
 }
 
