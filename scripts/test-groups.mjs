@@ -223,9 +223,20 @@ test("groups API", async (t) => {
 
     const res = await patchMeta(ids.board, { groupId: ids.groupA });
     assert.equal(res.status, 200);
-    // the meta response keeps exactly today's shape: no groupId leaks into it
-    assert.deepEqual(res.body, { id: ids.board, title: "Board in a group", subtitle: "", tags: [] });
+    // the meta response echoes the membership so a card can render without a second call
+    assert.deepEqual(res.body, {
+      id: ids.board,
+      title: "Board in a group",
+      subtitle: "",
+      tags: [],
+      groupId: ids.groupA,
+    });
     assert.deepEqual(await savedMeta(ids.board), { title: "Board in a group", groupId: ids.groupA });
+
+    // and the board list carries it too, so the catalogue needs one request
+    const boards = await call("/api/boards");
+    const listed = boards.body.boards.find((board) => board.id === ids.board);
+    assert.equal(listed.groupId, ids.groupA);
 
     const list = await call("/api/groups");
     assert.equal(list.body.groups.find((group) => group.id === ids.groupA).count, 1);

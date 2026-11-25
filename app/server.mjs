@@ -404,6 +404,7 @@ function metaView(id, meta) {
     title: typeof meta?.title === "string" && meta.title ? meta.title : id,
     subtitle: typeof meta?.subtitle === "string" ? meta.subtitle : "",
     tags: Array.isArray(meta?.tags) ? meta.tags.map(String) : [],
+    groupId: typeof meta?.groupId === "string" && meta.groupId ? meta.groupId : null,
   };
 }
 
@@ -814,6 +815,7 @@ async function apiList(res) {
         id,
         title: meta?.title ? String(meta.title) : id,
         subtitle: meta?.subtitle ? String(meta.subtitle) : "",
+        groupId: typeof meta?.groupId === "string" && meta.groupId ? meta.groupId : null,
         bytes: info.size,
         updated: info.mtimeMs,
         elements,
