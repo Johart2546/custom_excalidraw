@@ -6,6 +6,7 @@ import TableBuilder from "./TableBuilder.jsx";
 import GridOverlay from "./GridOverlay.jsx";
 import Minimap from "./Minimap.jsx";
 import LassoTool from "./tools/LassoTool.jsx";
+import DiagramTool from "./tools/DiagramTool.jsx";
 import {
   attachCellText,
   buildGrid,
@@ -1275,6 +1276,7 @@ export default function App() {
           tableSlot,
         )}
       <LassoTool apiRef={apiRef} canvasRef={canvasRef} host={tableSlot} />
+      <DiagramTool apiRef={apiRef} host={tableSlot} />
       <a className="back-fab" href="/" aria-label="กลับไปหน้ารวมกระดาน" title="กลับไปหน้ารวมกระดาน">
         <IconBack />
       </a>
