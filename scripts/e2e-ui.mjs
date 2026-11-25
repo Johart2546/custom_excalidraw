@@ -507,6 +507,20 @@ async function openEditor() {
       };
     })()`);
     check("table button moved into the drawing tools row", tablePlacement.inStack && tablePlacement.insideTools, JSON.stringify(tablePlacement));
+    const boardButtons = await cdp.evaluate(`(() => {
+      const slot = document.querySelector(".tools-table-slot");
+      const row = document.querySelector(".App-toolbar").getBoundingClientRect();
+      const all = [...(slot ? slot.querySelectorAll("button") : [])].map((b) => {
+        const r = b.getBoundingClientRect();
+        return { cls: b.className.toString(), inside: r.left >= row.left - 1 && r.right <= row.right + 1, w: Math.round(r.width) };
+      });
+      return { count: all.length, all, vw: innerWidth };
+    })()`);
+    check(
+      "the board tools (table, minimap, lasso, diagram) share the slot and stay inside the row",
+      boardButtons.count === 4 && boardButtons.all.every((b) => b.inside && b.w > 20),
+      JSON.stringify(boardButtons),
+    );
     check(
       "table button matches the native tool size",
       Math.abs((tablePlacement.w ?? 0) - (tablePlacement.nativeW ?? 29)) < 1.5 &&

@@ -784,7 +784,8 @@ code {
      buttons push the fold control past the island edge, so the minimap and
      lasso toggles step aside and the card hides itself instead. */
   .tools-minimap,
-  .tools-lasso {
+  .tools-lasso,
+  .tools-diagram {
     display: none;
   }
   .minimap-hide {
