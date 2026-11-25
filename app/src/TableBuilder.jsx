@@ -33,7 +33,22 @@ function NumberField({ label, value, limits, fallback, step = 1, onChange }) {
   );
 }
 
-export default function TableBuilder({ open, onClose, onInsert, selected, onUpdate, onGrow }) {
+const SIZE_LIMITS = {
+  row: [24, 1200],
+  col: [40, 1600],
+};
+
+export default function TableBuilder({
+  open,
+  onClose,
+  onInsert,
+  selected,
+  onUpdate,
+  onGrow,
+  active,
+  onResizeRow,
+  onResizeCol,
+}) {
   const [title, setTitle] = useState("");
   const [columns, setColumns] = useState(3);
   const [rows, setRows] = useState(4);
@@ -55,6 +70,22 @@ export default function TableBuilder({ open, onClose, onInsert, selected, onUpda
   const cellW = Math.max(1, Math.round(width / Math.max(1, columns)));
   const cellH = Math.max(1, Math.round(height / Math.max(1, rows)));
 
+  // the cell the user last clicked decides which row / column the size fields aim at
+  const rowIndex = active && active.grid === selected?.grid ? active.r : null;
+  const colIndex = active && active.grid === selected?.grid ? active.c : null;
+  const rowSize = rowIndex != null ? selected?.rowHeights?.[rowIndex] ?? cellH : null;
+  const colSize = colIndex != null ? selected?.colWidths?.[colIndex] ?? cellW : null;
+  const [rowDraft, setRowDraft] = useState(rowSize ?? cellH);
+  const [colDraft, setColDraft] = useState(colSize ?? cellW);
+
+  useEffect(() => {
+    if (rowSize != null) setRowDraft(rowSize);
+  }, [rowSize, rowIndex]);
+
+  useEffect(() => {
+    if (colSize != null) setColDraft(colSize);
+  }, [colSize, colIndex]);
+
   const run = (fn, label) => {
     try {
       const count = fn();
@@ -62,6 +93,29 @@ export default function TableBuilder({ open, onClose, onInsert, selected, onUpda
     } catch (error) {
       setNote({ ok: false, text: error?.message || String(error) });
     }
+  };
+
+  const act = (fn, text) => {
+    try {
+      fn();
+      setNote({ ok: true, text });
+    } catch (error) {
+      setNote({ ok: false, text: error?.message || String(error) });
+    }
+  };
+
+  const applyRow = (value) => {
+    if (rowIndex == null) return;
+    const next = clamp(value, SIZE_LIMITS.row, rowSize ?? cellH);
+    setRowDraft(next);
+    act(() => onResizeRow?.(rowIndex, next), `แถว ${rowIndex + 1} สูง ${next} px`);
+  };
+
+  const applyCol = (value) => {
+    if (colIndex == null) return;
+    const next = clamp(value, SIZE_LIMITS.col, colSize ?? cellW);
+    setColDraft(next);
+    act(() => onResizeCol?.(colIndex, next), `คอลัมน์ ${colIndex + 1} กว้าง ${next} px`);
   };
 
   const insert = () => {
@@ -117,6 +171,90 @@ export default function TableBuilder({ open, onClose, onInsert, selected, onUpda
           <NumberField label="ความกว้างรวม (px)" value={width} limits={LIMITS.width} fallback={520} step={10} onChange={setWidth} />
           <NumberField label="ความสูงรวม (px)" value={height} limits={LIMITS.height} fallback={240} step={10} onChange={setHeight} />
         </div>
+
+        {selected && (
+          <div className="grid-sizing">
+            <p className="hint">
+              {rowIndex != null
+                ? `กำลังปรับแถว ${rowIndex + 1} · คอลัมน์ ${colIndex + 1}`
+                : "คลิกช่องในตารางเพื่อเลือกแถวและคอลัมน์ที่ต้องการปรับ"}
+            </p>
+            <div className="row">
+              <label className="grow">
+                ความสูงแถว {rowIndex != null ? rowIndex + 1 : "—"} (px)
+                <input
+                  type="number"
+                  aria-label="ความสูงของแถวที่เลือก"
+                  min={SIZE_LIMITS.row[0]}
+                  max={SIZE_LIMITS.row[1]}
+                  step={5}
+                  value={rowDraft}
+                  disabled={rowIndex == null}
+                  onChange={(e) => setRowDraft(e.target.value)}
+                  onBlur={() => applyRow(rowDraft)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyRow(rowDraft);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn small"
+                disabled={rowIndex == null}
+                aria-label="ลดความสูงแถว"
+                onClick={() => applyRow((Number(rowDraft) || rowSize || cellH) - 10)}
+              >
+                −
+              </button>
+              <button
+                type="button"
+                className="btn small"
+                disabled={rowIndex == null}
+                aria-label="เพิ่มความสูงแถว"
+                onClick={() => applyRow((Number(rowDraft) || rowSize || cellH) + 10)}
+              >
+                +
+              </button>
+            </div>
+            <div className="row">
+              <label className="grow">
+                ความกว้างคอลัมน์ {colIndex != null ? colIndex + 1 : "—"} (px)
+                <input
+                  type="number"
+                  aria-label="ความกว้างของคอลัมน์ที่เลือก"
+                  min={SIZE_LIMITS.col[0]}
+                  max={SIZE_LIMITS.col[1]}
+                  step={5}
+                  value={colDraft}
+                  disabled={colIndex == null}
+                  onChange={(e) => setColDraft(e.target.value)}
+                  onBlur={() => applyCol(colDraft)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyCol(colDraft);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn small"
+                disabled={colIndex == null}
+                aria-label="ลดความกว้างคอลัมน์"
+                onClick={() => applyCol((Number(colDraft) || colSize || cellW) - 10)}
+              >
+                −
+              </button>
+              <button
+                type="button"
+                className="btn small"
+                disabled={colIndex == null}
+                aria-label="เพิ่มความกว้างคอลัมน์"
+                onClick={() => applyCol((Number(colDraft) || colSize || cellW) + 10)}
+              >
+                +
+              </button>
+            </div>
+          </div>
+        )}
 
         {selected && (
           <div className="selected-grid">

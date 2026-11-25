@@ -3,7 +3,15 @@ import { createPortal } from "react-dom";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import TableBuilder from "./TableBuilder.jsx";
-import { attachCellText, buildGrid } from "./table.js";
+import GridOverlay from "./GridOverlay.jsx";
+import {
+  attachCellText,
+  buildGrid,
+  gridMetrics,
+  matchSizes,
+  resizeGridColumn,
+  resizeGridRow,
+} from "./table.js";
 
 const SAVE_DELAY = 900; // http fallback (no websocket)
 const LIVE_DELAY = 300; // websocket push while several people edit
@@ -207,6 +215,7 @@ export default function App() {
   const [fatal, setFatal] = useState(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [selectedGrid, setSelectedGrid] = useState(null);
+  const [activeCell, setActiveCell] = useState(null);
   const [peers, setPeers] = useState([]);
   const [live, setLive] = useState("connecting"); // connecting | open | closed
   const [title, setTitle] = useState(boardId || "");
@@ -638,6 +647,42 @@ export default function App() {
     [boardId, flush],
   );
 
+  /** Everything the table panel needs to know about one grid. */
+  const describeGrid = useCallback((elements, gridId) => {
+    const rects = elements.filter(
+      (el) => el.type === "rectangle" && !el.isDeleted && el.customData?.grid === gridId,
+    );
+    if (!rects.length) return null;
+    const metrics = gridMetrics(elements, gridId);
+    const first = rects[0].customData;
+    const rows = Math.max(...rects.map((x) => x.customData?.r ?? 0)) + 1;
+    const cols = Math.max(...rects.map((x) => x.customData?.c ?? 0)) + 1;
+    return {
+      grid: gridId,
+      rows,
+      cols,
+      color: first.color,
+      headerRow: first.headerRow,
+      width: metrics ? Math.round(metrics.bounds.width) : 0,
+      height: metrics ? Math.round(metrics.bounds.height) : 0,
+      rowHeights: metrics ? metrics.rows.map((row) => Math.round(row.height)) : [],
+      colWidths: metrics ? metrics.cols.map((col) => Math.round(col.width)) : [],
+    };
+  }, []);
+
+  const sameGridInfo = (a, b) =>
+    !!a &&
+    !!b &&
+    a.grid === b.grid &&
+    a.rows === b.rows &&
+    a.cols === b.cols &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.color === b.color &&
+    a.headerRow === b.headerRow &&
+    a.rowHeights.join() === b.rowHeights.join() &&
+    a.colWidths.join() === b.colWidths.join();
+
   const onChange = useCallback(
     (elements, appState, files) => {
       if (Date.now() < armedAtRef.current) return;
@@ -645,37 +690,14 @@ export default function App() {
       let hit = null;
       for (const el of elements) {
         if (selected[el.id] && el.customData?.grid) {
-          const g = el.customData.grid;
-          const rects = elements.filter((x) => x.type === "rectangle" && x.customData?.grid === g);
-          if (!rects.length) break;
-          const width = Math.round(Math.max(...rects.map((x) => x.x + x.width)) - Math.min(...rects.map((x) => x.x)));
-          const height = Math.round(Math.max(...rects.map((x) => x.y + x.height)) - Math.min(...rects.map((x) => x.y)));
-          const first = rects[0].customData;
-          hit = {
-            grid: g,
-            rows: Math.max(...rects.map((x) => x.customData?.r ?? 0)) + 1,
-            cols: Math.max(...rects.map((x) => x.customData?.c ?? 0)) + 1,
-            color: first.color,
-            headerRow: first.headerRow,
-            width,
-            height,
-          };
+          hit = describeGrid(elements, el.customData.grid);
           break;
         }
       }
-      setSelectedGrid((prev) => {
-        if (!prev || !hit) return prev === hit ? prev : hit;
-        const same =
-          prev.grid === hit.grid &&
-          prev.rows === hit.rows &&
-          prev.cols === hit.cols &&
-          prev.width === hit.width &&
-          prev.height === hit.height;
-        return same ? prev : hit;
-      });
+      setSelectedGrid((prev) => (sameGridInfo(prev, hit) ? prev : hit));
       queueSave(elements, appState, files);
     },
-    [queueSave],
+    [describeGrid, queueSave],
   );
 
   // flush on hide (covers tab close / switching away far more reliably than unload)
@@ -951,6 +973,8 @@ export default function App() {
         rows: spec.rows,
         width: spec.width,
         height: spec.height,
+        colWidths: matchSizes(spec.colWidths ?? meta.colWidths, spec.columns),
+        rowHeights: matchSizes(spec.rowHeights ?? meta.rowHeights, spec.rows),
         color: meta.color,
         headerRow: meta.headerRow,
         gridId: meta.grid,
@@ -988,29 +1012,76 @@ export default function App() {
       } catch {
         /* nicety */
       }
-      setSelectedGrid({ ...meta, rows: spec.rows, cols: spec.columns, width: spec.width, height: spec.height });
-      queueSave(api.getSceneElements(), api.getAppState(), api.getFiles());
+      const after = api.getSceneElements();
+      setSelectedGrid(describeGrid(after, meta.grid));
+      queueSave(after, api.getAppState(), api.getFiles());
       return rebuilt.length;
     },
-    [queueSave],
+    [describeGrid, queueSave],
   );
 
   const growGrid = useCallback(
     (meta, axis) => {
       const mine = gridElements(meta?.grid);
-      const cells = mine.filter((el) => el.type === "rectangle");
-      if (!cells.length) throw new Error("คลิกเลือกช่องในตารางก่อน");
-      const left = Math.min(...cells.map((el) => el.x));
-      const top = Math.min(...cells.map((el) => el.y));
-      const width = Math.max(...cells.map((el) => el.x + el.width)) - left;
-      const height = Math.max(...cells.map((el) => el.y + el.height)) - top;
+      const metrics = gridMetrics(mine, meta?.grid);
+      if (!metrics) throw new Error("คลิกเลือกช่องในตารางก่อน");
+      const rowHeights = metrics.rows.map((row) => Math.round(row.height));
+      const colWidths = metrics.cols.map((col) => Math.round(col.width));
+      const avgRow = Math.round(rowHeights.reduce((a, b) => a + b, 0) / Math.max(1, rowHeights.length));
+      const avgCol = Math.round(colWidths.reduce((a, b) => a + b, 0) / Math.max(1, colWidths.length));
       const spec =
         axis === "row"
-          ? { columns: meta.cols, rows: meta.rows + 1, width, height: height + height / meta.rows }
-          : { columns: meta.cols + 1, rows: meta.rows, width: width + width / meta.cols, height };
+          ? {
+              columns: meta.cols,
+              rows: meta.rows + 1,
+              width: metrics.bounds.width,
+              height: metrics.bounds.height + avgRow,
+              rowHeights: [...rowHeights, avgRow],
+              colWidths,
+            }
+          : {
+              columns: meta.cols + 1,
+              rows: meta.rows,
+              width: metrics.bounds.width + avgCol,
+              height: metrics.bounds.height,
+              rowHeights,
+              colWidths: [...colWidths, avgCol],
+            };
       return applyGrid(meta, spec);
     },
     [applyGrid, gridElements],
+  );
+
+  /** Size one row (index r) of the selected grid; keeps everything below it in place. */
+  const resizeRow = useCallback(
+    (meta, r, height) => {
+      const api = apiRef.current;
+      if (!api || !meta?.grid) throw new Error("คลิกเลือกช่องในตารางก่อน");
+      const result = resizeGridRow(api.getSceneElements(), meta.grid, r, height);
+      if (!result.changed) return false;
+      api.updateScene({ elements: result.elements, captureUpdate: "IMMEDIATELY" });
+      const after = api.getSceneElements();
+      setSelectedGrid(describeGrid(after, meta.grid));
+      queueSave(after, api.getAppState(), api.getFiles());
+      return true;
+    },
+    [describeGrid, queueSave],
+  );
+
+  /** Size one column (index c) of the selected grid; text rewraps to the new width. */
+  const resizeCol = useCallback(
+    (meta, c, width) => {
+      const api = apiRef.current;
+      if (!api || !meta?.grid) throw new Error("คลิกเลือกช่องในตารางก่อน");
+      const result = resizeGridColumn(api.getSceneElements(), meta.grid, c, width);
+      if (!result.changed) return false;
+      api.updateScene({ elements: result.elements, captureUpdate: "IMMEDIATELY" });
+      const after = api.getSceneElements();
+      setSelectedGrid(describeGrid(after, meta.grid));
+      queueSave(after, api.getAppState(), api.getFiles());
+      return true;
+    },
+    [describeGrid, queueSave],
   );
 
   const insertTable = useCallback(
@@ -1041,6 +1112,38 @@ export default function App() {
     },
     [queueSave],
   );
+
+  /* Which cell did the user just click? The table panel uses it to aim the
+     row/column size fields and the overlay highlights that row and column. */
+  useEffect(() => {
+    if (phase !== "ready") return undefined;
+    const host = canvasRef.current;
+    if (!host) return undefined;
+    const onDown = (event) => {
+      const api = apiRef.current;
+      if (!api || event.button !== 0) return;
+      const state = api.getAppState();
+      const zoom = state.zoom?.value || 1;
+      const rect = host.getBoundingClientRect();
+      const sceneX = (event.clientX - rect.left) / zoom - (state.scrollX || 0);
+      const sceneY = (event.clientY - rect.top) / zoom - (state.scrollY || 0);
+      const cell = api.getSceneElements().find(
+        (el) =>
+          el.type === "rectangle" &&
+          !el.isDeleted &&
+          el.customData?.grid &&
+          sceneX >= el.x &&
+          sceneX <= el.x + el.width &&
+          sceneY >= el.y &&
+          sceneY <= el.y + el.height,
+      );
+      setActiveCell(
+        cell ? { grid: cell.customData.grid, r: cell.customData.r, c: cell.customData.c } : null,
+      );
+    };
+    host.addEventListener("pointerdown", onDown, true);
+    return () => host.removeEventListener("pointerdown", onDown, true);
+  }, [phase, scene]);
 
   /* ---------------------------------------------------------------- render */
 
@@ -1147,6 +1250,7 @@ export default function App() {
             window.__boardsApi = api; // handy for the e2e harness
           }}
         />
+        <GridOverlay apiRef={apiRef} canvasRef={canvasRef} activeCell={activeCell} />
       </div>
 
       {toolsReady && toolsCollapsed && toolsPos && (
@@ -1170,6 +1274,9 @@ export default function App() {
         selected={selectedGrid}
         onUpdate={(spec) => applyGrid(selectedGrid, spec)}
         onGrow={(axis) => growGrid(selectedGrid, axis)}
+        active={activeCell}
+        onResizeRow={(r, h) => resizeRow(selectedGrid, r, h)}
+        onResizeCol={(c, w) => resizeCol(selectedGrid, c, w)}
       />
     </div>
   );

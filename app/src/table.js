@@ -506,6 +506,41 @@ export function attachCellText(cell, value, { groupIds = [], customData } = {}) 
   return inner;
 }
 
+/** Equal split, or the given sizes rescaled so they still sum to `total`. */
+function fitSizes(parts, count, total) {
+  const equal = total / count;
+  const usable =
+    Array.isArray(parts) && parts.length === count
+      ? parts.map((n) => (Number.isFinite(n) && n > 0 ? n : equal))
+      : null;
+  if (!usable) return Array.from({ length: count }, () => equal);
+  const sum = usable.reduce((a, b) => a + b, 0);
+  if (!(sum > 0)) return Array.from({ length: count }, () => equal);
+  return usable.map((n) => (n / sum) * total);
+}
+
+/** Running edge offsets: cells tile exactly, no rounding gaps between columns. */
+function edgesOf(sizes) {
+  const edges = [0];
+  for (let i = 0; i < sizes.length; i += 1) {
+    edges.push(round(edges[i] + sizes[i]));
+  }
+  return edges;
+}
+
+/**
+ * Pad (with the average) or trim a row-height / column-width list to `count`.
+ * Used when a grid is rebuilt with a different number of rows or columns.
+ */
+export function matchSizes(parts, count) {
+  const list = Array.isArray(parts) ? parts.filter((n) => Number.isFinite(n) && n > 0) : [];
+  if (!list.length || count <= 0) return [];
+  if (list.length === count) return list.slice();
+  if (list.length > count) return list.slice(0, count);
+  const avg = list.reduce((a, b) => a + b, 0) / list.length;
+  return [...list, ...Array.from({ length: count - list.length }, () => avg)];
+}
+
 export function buildGrid({
   columns = 3,
   rows = 4,
@@ -516,6 +551,8 @@ export function buildGrid({
   title,
   subtitle,
   gridId,
+  colWidths,
+  rowHeights,
 } = {}) {
   const gid = gridId ?? nextId("grid");
   const meta = { grid: gid, color, headerRow };
@@ -550,15 +587,17 @@ export function buildGrid({
     elements.push(sub);
   }
 
-  const cellW = cardW / cols;
-  const cellH = cardH / lines;
+  // sizes are optional: without them the grid is uniform, with them the shape
+  // the user dragged out earlier survives a rebuild
+  const colEdges = edgesOf(fitSizes(colWidths, cols, cardW));
+  const rowEdges = edgesOf(fitSizes(rowHeights, lines, cardH));
 
   for (let r = 0; r < lines; r += 1) {
     const header = headerRow && r === 0;
     for (let c = 0; c < cols; c += 1) {
-      const x = c * cellW;
-      const y = titleH + r * cellH;
-      const cell = rect(x, y, cellW, cellH, {
+      const x = colEdges[c];
+      const y = titleH + rowEdges[r];
+      const cell = rect(x, y, colEdges[c + 1] - colEdges[c], rowEdges[r + 1] - rowEdges[r], {
         strokeColor: header ? palette.stroke : RULE,
         backgroundColor: header ? palette.fill : "#ffffff",
         roughness: 0,
@@ -571,6 +610,160 @@ export function buildGrid({
   }
 
   return { elements, width: cardW, height: titleH + cardH, columns: cols, rows: lines };
+}
+
+/* ------------------------------------------------------------ grid geometry */
+
+const GRID_MIN_ROW_H = 24;
+const GRID_MAX_ROW_H = 1200;
+const GRID_MIN_COL_W = 40;
+const GRID_MAX_COL_W = 1600;
+
+/** Rectangle cells of one grid, deleted ones excluded. */
+function gridCells(elements, gridId) {
+  return (elements || []).filter(
+    (el) => el.type === "rectangle" && !el.isDeleted && el.customData?.grid === gridId,
+  );
+}
+
+/**
+ * Row heights / column widths of a grid, derived from the cells themselves:
+ * the grid carries no size metadata, so its geometry is the only truth — and a
+ * table the user resized by hand still reports real numbers.
+ */
+export function gridMetrics(elements, gridId) {
+  const cells = gridCells(elements, gridId);
+  if (!cells.length) return null;
+  const rowTop = new Map();
+  const rowBottom = new Map();
+  const colLeft = new Map();
+  const colRight = new Map();
+  for (const cell of cells) {
+    const r = cell.customData.r | 0;
+    const c = cell.customData.c | 0;
+    rowTop.set(r, Math.min(rowTop.get(r) ?? Infinity, cell.y));
+    rowBottom.set(r, Math.max(rowBottom.get(r) ?? -Infinity, cell.y + cell.height));
+    colLeft.set(c, Math.min(colLeft.get(c) ?? Infinity, cell.x));
+    colRight.set(c, Math.max(colRight.get(c) ?? -Infinity, cell.x + cell.width));
+  }
+  const rows = [...rowTop.keys()]
+    .sort((a, b) => a - b)
+    .map((r) => ({ r, top: round(rowTop.get(r)), height: round(rowBottom.get(r) - rowTop.get(r)) }));
+  const cols = [...colLeft.keys()]
+    .sort((a, b) => a - b)
+    .map((c) => ({ c, left: round(colLeft.get(c)), width: round(colRight.get(c) - colLeft.get(c)) }));
+  const left = cols.length ? cols[0].left : 0;
+  const top = rows.length ? rows[0].top : 0;
+  const right = cols.length ? cols[cols.length - 1].left + cols[cols.length - 1].width : 0;
+  const bottom = rows.length ? rows[rows.length - 1].top + rows[rows.length - 1].height : 0;
+  return {
+    rows,
+    cols,
+    bounds: { left, top, right, bottom, width: round(right - left), height: round(bottom - top) },
+  };
+}
+
+/** Cell text after its cell moved or changed width: rewrapped and centred. */
+function refitCellText(el, box, rewrap) {
+  const family = el.fontFamily ?? FONT_SANS;
+  const fontSize = el.fontSize || CELL_FONT;
+  const padX = Math.min(CELL_PAD_X, Math.max(4, box.width * 0.12));
+  const maxWidth = Math.max(8, box.width - padX * 2);
+  const source = el.originalText ?? el.text ?? "";
+  let width = el.width;
+  let height = el.height;
+  let value = el.text;
+  if (rewrap) {
+    const lines = wrap(source, maxWidth, fontSize, family);
+    const widest = Math.max(...lines.map((line) => measure(line, fontSize, family)), 1);
+    width = round(Math.min(maxWidth, widest));
+    height = round(lines.length * fontSize * LINE_HEIGHT);
+    value = lines.join("\n");
+  }
+  return {
+    ...el,
+    x: round(box.x + (box.width - width) / 2),
+    y: round(box.y + (box.height - height) / 2),
+    width: round(width),
+    height: round(height),
+    text: value,
+  };
+}
+
+function resizeTrack(elements, gridId, { axis, index, size, min, max }) {
+  const rowsMode = axis === "row";
+  const metrics = gridMetrics(elements, gridId);
+  const track = metrics ? (rowsMode ? metrics.rows : metrics.cols) : [];
+  const current = track.find((t) => (rowsMode ? t.r : t.c) === index);
+  if (!current) return { elements, changed: 0, size: null, previous: null };
+
+  const previous = rowsMode ? current.height : current.width;
+  const wanted = Number(size);
+  const next = round(
+    Math.max(min, Math.min(max, Number.isFinite(wanted) && wanted > 0 ? wanted : previous)),
+  );
+  if (Math.abs(next - previous) < 0.5) return { elements, changed: 0, size: previous, previous };
+
+  const delta = round(next - previous);
+  const cells = gridCells(elements, gridId);
+  const boxes = new Map();
+  for (const cell of cells) {
+    const at = (rowsMode ? cell.customData.r : cell.customData.c) | 0;
+    const box = { x: cell.x, y: cell.y, width: cell.width, height: cell.height };
+    if (at === index) {
+      if (rowsMode) box.height = next;
+      else box.width = next;
+    } else if (at > index) {
+      if (rowsMode) box.y = cell.y + delta;
+      else box.x = cell.x + delta;
+    }
+    if (box.x !== cell.x || box.y !== cell.y || box.width !== cell.width || box.height !== cell.height) {
+      boxes.set(cell.id, box);
+    }
+  }
+  if (!boxes.size) return { elements, changed: 0, size: previous, previous };
+
+  const cellById = new Map(cells.map((el) => [el.id, el]));
+  const now = Date.now();
+  let changed = 0;
+  const out = (elements || []).map((el) => {
+    const box = boxes.get(el.id);
+    if (box) {
+      changed += 1;
+      return { ...el, ...box, version: (el.version || 1) + 1, versionNonce: randInt(1e9), updated: now };
+    }
+    if (!el.isDeleted && el.type === "text" && el.containerId && boxes.has(el.containerId)) {
+      const cell = cellById.get(el.containerId);
+      const nextBox = boxes.get(el.containerId);
+      const patched = refitCellText(el, nextBox, !rowsMode && nextBox.width !== cell.width);
+      changed += 1;
+      return { ...patched, version: (el.version || 1) + 1, versionNonce: randInt(1e9), updated: now };
+    }
+    return el;
+  });
+  return { elements: out, changed, size: next, previous };
+}
+
+/** Grow/shrink one row: rows below shift, that row's text stays centred. */
+export function resizeGridRow(elements, gridId, r, height) {
+  return resizeTrack(elements, gridId, {
+    axis: "row",
+    index: Number(r) | 0,
+    size: height,
+    min: GRID_MIN_ROW_H,
+    max: GRID_MAX_ROW_H,
+  });
+}
+
+/** Grow/shrink one column: columns to the right shift, text rewraps. */
+export function resizeGridColumn(elements, gridId, c, width) {
+  return resizeTrack(elements, gridId, {
+    axis: "col",
+    index: Number(c) | 0,
+    size: width,
+    min: GRID_MIN_COL_W,
+    max: GRID_MAX_COL_W,
+  });
 }
 
 export { PALETTE };
