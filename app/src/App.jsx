@@ -258,6 +258,10 @@ export default function App() {
       /* private mode: the toggle still works for this session */
     }
   }, [minimapOn]);
+  /* Phones have no room for the minimap toggle in the tools row, so the card
+     carries its own hide button there. That only snoozes it for the session:
+     the stored preference still brings it back on the next load. */
+  const [minimapSnoozed, setMinimapSnoozed] = useState(false);
   // DOM slot inside Excalidraw's top-right menu row (next to Library), when that
   // row exists. Phones have no such row, so the stack falls back to the corner.
   const [presenceHost, setPresenceHost] = useState(null);
@@ -1291,7 +1295,7 @@ export default function App() {
           }}
         />
         <GridOverlay apiRef={apiRef} canvasRef={canvasRef} activeCell={activeCell} />
-        <Minimap apiRef={apiRef} visible={minimapOn} />
+        <Minimap apiRef={apiRef} visible={minimapOn && !minimapSnoozed} onDismiss={() => setMinimapSnoozed(true)} />
       </div>
 
       {toolsReady && toolsCollapsed && toolsPos && (

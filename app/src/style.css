@@ -772,8 +772,44 @@ code {
   }
 }
 
+/* The card's own hide button only exists on phones, where the tools row has no
+   room for the minimap toggle. */
+.minimap-hide {
+  display: none;
+}
+
 /* phones: keep the card small and clear of the zoom footer */
 @media (max-width: 560px) {
+  /* the tools row fits the table button and nothing more: two extra 29px
+     buttons push the fold control past the island edge, so the minimap and
+     lasso toggles step aside and the card hides itself instead. */
+  .tools-minimap,
+  .tools-lasso {
+    display: none;
+  }
+  .minimap-hide {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--glass-line);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.94);
+    color: var(--muted);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(23, 25, 46, 0.12);
+  }
+  .minimap-hide:hover {
+    color: var(--ink);
+    background: #fff;
+  }
   .minimap {
     left: 8px;
     bottom: 48px;

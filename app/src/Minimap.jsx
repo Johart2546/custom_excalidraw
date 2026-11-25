@@ -219,7 +219,7 @@ function paintElement(ctx, element, scale) {
   ctx.restore();
 }
 
-export default function Minimap({ apiRef, visible = true }) {
+export default function Minimap({ apiRef, visible = true, onDismiss }) {
   const canvasRef = useRef(null);
   const zoomRef = useRef(null);
   const mapRef = useRef(null); // last transform, reused for pointer maths
@@ -456,6 +456,11 @@ export default function Minimap({ apiRef, visible = true }) {
           100%
         </span>
       </div>
+      {onDismiss && (
+        <button type="button" className="minimap-hide" onClick={onDismiss} aria-label="ซ่อนแผนที่ย่อ" title="ซ่อนแผนที่ย่อ">
+          ×
+        </button>
+      )}
     </div>
   );
 }
