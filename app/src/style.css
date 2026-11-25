@@ -12,7 +12,6 @@
   --ok: #17915a;
   --bad: #cf3b3b;
   --warn: #a86400;
-  --bar-h: 46px;
   --radius: 8px;
   --glass: rgba(255, 255, 255, 0.52);
   --glass-strong: rgba(255, 255, 255, 0.74);
@@ -54,91 +53,7 @@ body {
   height: 100dvh;
 }
 
-/* ------------------------------------------------------------------ top bar */
-
-.bar {
-  position: absolute;
-  top: 10px;
-  left: 12px;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: max-content;
-  max-width: calc(100vw - 24px);
-  height: var(--bar-h);
-  margin: 0;
-  padding: 0 6px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.38));
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
-  border: 1px solid var(--glass-line);
-  border-radius: 16px;
-  box-shadow: 0 14px 38px rgba(31, 36, 71, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.76);
-  font-size: 13px;
-  touch-action: none;
-  user-select: none;
-}
-
-.bar-content {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex: 0 1 auto;
-}
-
-.bar .spacer {
-  flex: 1;
-}
-
-/* the grip is the drag handle in both states; the fold button stays a plain
-   click target so folding never turns into a drag */
-.bar-grip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 20px;
-  height: 30px;
-  padding: 0;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--muted);
-  cursor: grab;
-  touch-action: none;
-}
-.bar-grip:hover {
-  background: rgba(255, 255, 255, 0.52);
-  color: var(--ink);
-}
-.bar-grip:active {
-  cursor: grabbing;
-}
-.bar-grip:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-.bar-grip svg {
-  opacity: 0.58;
-}
-
-.bar-toggle {
-  flex: none;
-  width: 28px;
-  height: 28px;
-}
-
-.bar.collapsed {
-  gap: 2px;
-  padding: 0 5px;
-}
-.bar.collapsed .bar-content {
-  display: none;
-}
-
-/* icon-only button: back, copy link, download, panel close */
+/* icon-only button: panel close, delete, download */
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -171,174 +86,10 @@ body {
   color: var(--ok);
 }
 
-/* --------------------------------------------------------------- board title */
-
-.title-slot {
-  min-width: 0;
-  flex: 0 1 auto;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: 2px;
-}
-
-.title-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: min(40vw, 340px);
-  padding: 5px 9px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-weight: 550;
-  cursor: pointer;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease,
-    box-shadow 0.12s ease;
-}
-.title-btn:hover {
-  background: rgba(255, 255, 255, 0.52);
-  border-color: var(--glass-line);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-}
-.title-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-.title-btn svg {
-  flex: none;
-  opacity: 0.68;
-  color: var(--muted);
-  transition: opacity 0.12s ease;
-}
-.title-btn:hover svg,
-.title-btn:focus-visible svg {
-  opacity: 1;
-}
-
-/* an explicit label, because a lone pencil is easy to miss */
-.title-edit {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex: none;
-  color: var(--muted);
-  opacity: 0.82;
-  font-size: 11.5px;
-  letter-spacing: 0.1px;
-  transition:
-    color 0.12s ease,
-    opacity 0.12s ease;
-}
-.title-edit svg {
-  width: 13px;
-  height: 13px;
-  opacity: 1;
-  color: currentColor;
-}
-.title-btn:hover .title-edit,
-.title-btn:focus-visible .title-edit {
-  color: var(--accent);
-  opacity: 1;
-}
-
-.title-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.title-input {
-  user-select: text;
-  width: min(40vw, 340px);
-  min-width: 0;
-  padding: 5px 9px;
-  border: 1px solid var(--accent);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 0 0 3px rgba(99, 96, 217, 0.14);
-  color: var(--ink);
-  font: inherit;
-  font-weight: 550;
-  outline: none;
-}
-
-.title-save,
-.title-cancel {
-  width: 28px;
-  height: 28px;
-}
-.title-save {
-  color: var(--ok);
-}
-.title-cancel {
-  color: var(--muted);
-}
-
-.title-error {
-  flex: none;
-  color: var(--bad);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-/* ------------------------------------------------------------- save status */
-
-.save {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  padding: 0 4px;
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.save i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #b9b9c0;
-  flex: none;
-}
-
-.save.idle,
-.save.saved {
-  color: var(--muted);
-}
-.save.idle i {
-  background: #b9b9c0;
-}
-.save.saved i {
-  background: var(--ok);
-}
-.save.dirty,
-.save.saving {
-  color: var(--warn);
-}
-.save.dirty i,
-.save.saving i {
-  background: var(--warn);
-}
-.save.saving i {
-  animation: pulse 1.2s ease-in-out infinite;
-}
-.save.error {
-  color: var(--bad);
-}
-.save.error i {
-  background: var(--bad);
-}
-
 /* ---------------------------------------------------------------- presence */
 /* Who is in the board right now: a small avatar stack in the top-right corner,
-   the same place excalidraw.com puts it. It is a sibling of .bar, not a child -
-   .bar has a backdrop-filter, which would become its containing block. */
+   the same place excalidraw.com puts it. It is docked into Excalidraw's own
+   row, so it must not live inside another backdrop-filtered element. */
 
 /* On a phone there is no top-right menu row, so the stack keeps a glass pill
    of its own. On the desktop it is docked into Excalidraw's Library row. */
@@ -537,8 +288,8 @@ body {
   box-shadow: 0 8px 24px rgba(31, 36, 71, 0.1);
 }
 
-/* the app toolbar floats over the canvas; leave the native Excalidraw
-   top islands below it so the menu and shape toolbar stay clickable */
+/* the back button owns the top-left corner; leave Excalidraw's own top
+   islands below it so its menu and shape toolbar stay clickable */
 .canvas .excalidraw .FixedSideContainer_side_top {
   margin-top: 52px;
 }
@@ -703,7 +454,7 @@ body {
 
 .panel {
   position: fixed;
-  top: calc(var(--bar-h) + 16px);
+  top: 10px;
   right: 8px;
   bottom: 8px;
   width: 320px;
@@ -887,7 +638,6 @@ code {
 
 /* Browsers without backdrop blur still need an opaque-enough surface. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .bar,
   .presence,
   .panel {
     background: rgba(250, 251, 255, 0.96);
@@ -898,33 +648,12 @@ code {
 }
 
 @media (max-width: 560px) {
-  .bar {
-    top: 6px;
-    left: 52px;
-    right: auto;
-    width: calc(100vw - 70px - 68px);
-    max-width: none;
-    gap: 3px;
-    margin: 0;
-    padding: 0 6px;
-    border-radius: 14px;
-  }
-  .bar-content {
-    flex: 1 1 auto;
-  }
-  .bar.collapsed {
-    width: max-content;
-    padding: 0 5px;
-  }
   .back-fab {
     top: 6px;
     left: 6px;
     width: 38px;
     height: 38px;
     border-radius: 11px;
-  }
-  .bar-tools {
-    display: none;
   }
   .panel {
     width: calc(100vw - 16px);
@@ -933,43 +662,7 @@ code {
     margin: 0;
     border-radius: 0;
   }
-  /* the bar has to give way: the title shrinks, the table button drops its label */
-  .title-slot {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .title-btn,
-  .title-input {
-    width: 100%;
-    max-width: none;
-  }
-  /* the hover hint has no hover on a phone, and the title needs the pixels */
-  .title-edit {
-    display: none;
-  }
-  /* status is a coloured dot; the wording only shows while it matters */
-  .save {
-    gap: 0;
-  }
-  .save-text {
-    display: none;
-  }
-  .save.dirty .save-text,
-  .save.saving .save-text,
-  .save.error .save-text {
-    display: inline;
-  }
-  .shell.editing-title .title-input {
-    flex: 1 1 auto;
-    width: auto;
-    min-width: 0;
-  }
-  /* while typing a name, give the field the room instead of status chrome */
-  .shell.editing-title .bar-extra,
-  .shell.editing-title .save {
-    display: none;
-  }
-  /* the presence pill shrinks to avatars so the bar keeps its room */
+  /* the presence pill shrinks to avatars; phones have no top-right row */
   .presence {
     top: 6px;
     right: 6px;
@@ -989,14 +682,8 @@ code {
   .presence-avatar:nth-child(n + 4) {
     display: none;
   }
-  .presence-count {
-    display: none;
-  }
   .presence-state {
     padding-right: 0;
     font-size: 11px;
-  }
-  .save {
-    padding: 0 2px;
   }
 }

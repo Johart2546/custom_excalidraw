@@ -298,41 +298,12 @@ async function waitForBoardCount(min, timeout = 12000) {
   return count;
 }
 
-async function readTitleText() {
-  return cdp.evaluate(
-    `document.querySelector(".title-btn .title-text")?.textContent ?? null`,
-  );
-}
-
 async function openEditor() {
   await cdp.navigate(`${BASE}/b/${BOARD}`);
   await cdp.waitFor(
-    `!!document.querySelector(".title-btn") && !!document.querySelector(".presence") && !!document.querySelector(".tools-table")`,
+    `!!document.querySelector(".presence") && !!document.querySelector(".tools-table") && !document.querySelector(".bar")`,
     { label: "editor ready" },
   );
-}
-
-async function saveTitleWith(trigger) {
-  await cdp.click(".title-btn");
-  await cdp.waitFor(`!!document.querySelector(".title-input")`, {
-    label: "title input",
-  });
-  await cdp.evaluate(`document.querySelector(".title-input").select()`);
-  if (trigger === "button") {
-    await cdp.type(`ชื่อจากปุ่ม ${Date.now()}`);
-    await cdp.click(".title-save");
-  } else if (trigger === "enter") {
-    await cdp.type(`ชื่อจาก Enter ${Date.now()}`);
-    await cdp.key("Enter", "Enter", 13);
-  } else if (trigger === "blur") {
-    await cdp.type(`ชื่อจาก Blur ${Date.now()}`);
-    await cdp.clickPoint(900, 500);
-  }
-  await cdp.waitFor(`!document.querySelector(".title-input")`, {
-    label: "title input closed",
-  });
-  await sleep(250);
-  return readTitleText();
 }
 
 (async () => {
@@ -394,24 +365,15 @@ async function saveTitleWith(trigger) {
 
     /* ------------------------------------------------------------ editor */
     await openEditor();
-    check("editor opens with title", (await readTitleText()) === BOARD);
-    const editorGlass = await cdp.evaluate(`(() => {
-      const bar = document.querySelector(".bar");
-      const canvas = document.querySelector(".canvas");
-      return {
-        bodyMesh: getComputedStyle(document.body).backgroundImage.includes("radial-gradient"),
-        barBlur: getComputedStyle(bar).backdropFilter || getComputedStyle(bar).webkitBackdropFilter,
-        barBg: getComputedStyle(bar).backgroundImage,
-        canvasRadius: getComputedStyle(canvas).borderRadius,
-        pencilOpacity: getComputedStyle(document.querySelector(".title-btn svg")).opacity,
-      };
-    })()`);
-    check("editor body has glass mesh", editorGlass.bodyMesh, JSON.stringify(editorGlass.bodyMesh));
-    check(
-      "editor bar is frosted",
-      /blur/.test(editorGlass.barBlur || "") && /rgba\(255, 255, 255/.test(editorGlass.barBg),
-      `${editorGlass.barBlur} / ${editorGlass.barBg}`,
-    );
+    const editorMesh = await cdp.evaluate(`getComputedStyle(document.body).backgroundImage.includes("radial-gradient")`);
+    check("editor body has glass mesh", editorMesh, String(editorMesh));
+    const toolbars = await cdp.evaluate(`(() => ({
+      appBar: !!document.querySelector(".bar"),
+      tools: !!document.querySelector(".App-toolbar"),
+      rows: document.querySelectorAll(".bar, .App-toolbar").length,
+    }))()`);
+    check("editor has no separate app bar", toolbars.appBar === false && toolbars.tools === true && toolbars.rows === 1, JSON.stringify(toolbars));
+
     const canvasRect = await cdp.evaluate(`(() => {
       const r = document.querySelector(".canvas").getBoundingClientRect();
       return { left: r.left, top: r.top, width: r.width, height: r.height, vw: innerWidth, vh: innerHeight };
@@ -425,123 +387,38 @@ async function saveTitleWith(trigger) {
       JSON.stringify(canvasRect),
     );
 
-    const barRect = await cdp.evaluate(`(() => {
-      const r = document.querySelector(".bar").getBoundingClientRect();
-      return { left: r.left, top: r.top, width: r.width, right: r.right, vw: innerWidth };
-    })()`);
-    check(
-      "editor top bar is a compact floating toolbar",
-      barRect.left >= 8 && barRect.top >= 8 && barRect.width < barRect.vw * 0.75 && barRect.right < barRect.vw - 8,
-      JSON.stringify(barRect),
-    );
-
-    const overlay = await cdp.evaluate(`(() => {
-      const bar = document.querySelector(".bar").getBoundingClientRect();
-      const canvas = document.querySelector(".canvas").getBoundingClientRect();
+    const backChrome = await cdp.evaluate(`(() => {
+      const back = document.querySelector(".back-fab").getBoundingClientRect();
       const menu = document.querySelector(".FixedSideContainer_side_top")?.getBoundingClientRect();
-      return { barBottom: bar.bottom, canvasTop: canvas.top, menuTop: menu ? menu.top : null };
-    })()`);
-    check(
-      "toolbar floats over the canvas",
-      overlay.canvasTop < overlay.barBottom - 8,
-      JSON.stringify(overlay),
-    );
-    check(
-      "floating toolbar clears the Excalidraw menu",
-      overlay.menuTop !== null && overlay.barBottom <= overlay.menuTop - 4,
-      JSON.stringify(overlay),
-    );
-    check("rename pencil is visible", Number(editorGlass.pencilOpacity) >= 0.65, editorGlass.pencilOpacity);
-
-    const toolbarBefore = await cdp.evaluate(`(() => {
-      const r = document.querySelector(".bar").getBoundingClientRect();
-      return { left: r.left, top: r.top };
-    })()`);
-    await cdp.drag(".bar-grip", 90, 60);
-    await sleep(180);
-    const toolbarAfter = await cdp.evaluate(`(() => {
-      const r = document.querySelector(".bar").getBoundingClientRect();
-      return { left: r.left, top: r.top, vw: innerWidth, vh: innerHeight, w: r.width, h: r.height };
-    })()`);
-    check(
-      "floating toolbar can be dragged",
-      toolbarAfter.left > toolbarBefore.left + 40 && toolbarAfter.top > toolbarBefore.top + 30,
-      JSON.stringify({ toolbarBefore, toolbarAfter }),
-    );
-    check(
-      "dragged toolbar stays on screen",
-      toolbarAfter.left >= 0 &&
-        toolbarAfter.top >= 0 &&
-        toolbarAfter.left + toolbarAfter.w <= toolbarAfter.vw &&
-        toolbarAfter.top + toolbarAfter.h <= toolbarAfter.vh,
-      JSON.stringify(toolbarAfter),
-    );
-
-    await cdp.click(".bar-toggle");
-    await cdp.waitFor(`document.querySelector(".bar").classList.contains("collapsed")`, {
-      label: "toolbar fold",
-    });
-    const folded = await cdp.evaluate(`(() => {
-      const bar = document.querySelector(".bar");
-      const r = bar.getBoundingClientRect();
+      const presence = document.querySelector(".presence").getBoundingClientRect();
       return {
-        width: r.width,
-        left: r.left,
-        top: r.top,
-        content: getComputedStyle(bar.querySelector(".bar-content")).display,
-        label: bar.querySelector(".bar-toggle").getAttribute("aria-label"),
+        back: [back.left, back.top, back.right, back.bottom].map(Math.round),
+        menuTop: menu ? Math.round(menu.top) : null,
+        presenceTop: Math.round(presence.top),
+        vw: innerWidth,
       };
     })()`);
     check(
-      "floating toolbar folds into a small pill",
-      folded.width < 110 && folded.content === "none" && folded.left > 40,
-      JSON.stringify(folded),
-    );
-    await cdp.drag(".bar-grip", 32, 22);
-    await sleep(160);
-    const foldedMoved = await cdp.evaluate(`(() => {
-      const r = document.querySelector(".bar").getBoundingClientRect();
-      return { left: r.left, top: r.top, width: r.width, collapsed: document.querySelector(".bar").classList.contains("collapsed") };
-    })()`);
-    check(
-      "folded toolbar can still be moved",
-      foldedMoved.collapsed && foldedMoved.left > folded.left + 15 && foldedMoved.top > folded.top + 10,
-      JSON.stringify({ folded, foldedMoved }),
-    );
-    await cdp.click(".bar-toggle");
-    await cdp.waitFor(`!document.querySelector(".bar").classList.contains("collapsed")`, {
-      label: "toolbar unfold",
-    });
-    const unfolded = await cdp.evaluate(`(() => {
-      const bar = document.querySelector(".bar");
-      return {
-        width: bar.getBoundingClientRect().width,
-        content: getComputedStyle(bar.querySelector(".bar-content")).display,
-      };
-    })()`);
-    check(
-      "floating toolbar expands again",
-      unfolded.width > 300 && unfolded.content !== "none",
-      JSON.stringify(unfolded),
+      "back button alone occupies the top-left corner",
+      backChrome.back[0] <= 16 && backChrome.back[1] <= 16 &&
+        backChrome.menuTop !== null && backChrome.back[3] <= backChrome.menuTop - 4,
+      JSON.stringify(backChrome),
     );
 
-    await cdp.evaluate(`document.querySelector(".bar-grip").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`);
-    await sleep(300);
     const backButton = await cdp.evaluate(`(() => {
       const back = document.querySelector(".back-fab");
-      const old = document.querySelector('.bar-content a[href="/"]');
       const r = back?.getBoundingClientRect();
       return {
         exists: !!back,
         href: back?.getAttribute("href") || null,
         left: r?.left ?? null,
         top: r?.top ?? null,
-        oldInBar: !!old,
+        appBar: !!document.querySelector(".bar"),
       };
     })()`);
     check(
-      "back button is a separate top-left control",
-      backButton.exists && backButton.href === "/" && !backButton.oldInBar &&
+      "back button links to the catalogue",
+      backButton.exists && backButton.href === "/" && !backButton.appBar &&
         backButton.left <= 16 && backButton.top <= 16,
       JSON.stringify(backButton),
     );
@@ -560,13 +437,13 @@ async function saveTitleWith(trigger) {
         left: r?.left ?? null,
         top: r?.top ?? null,
         bottom: r?.bottom ?? null,
-        barBottom: document.querySelector(".bar").getBoundingClientRect().bottom,
+        backBottom: document.querySelector(".back-fab").getBoundingClientRect().bottom,
       };
     })()`);
     check(
       "drawing tools are a separate floating island",
       toolsBefore.exists && toolsBefore.floating && toolsBefore.position === "fixed" &&
-        toolsBefore.grip && toolsBefore.fold && toolsBefore.top > toolsBefore.barBottom,
+        toolsBefore.grip && toolsBefore.fold && toolsBefore.top > toolsBefore.backBottom,
       JSON.stringify(toolsBefore),
     );
 
@@ -615,50 +492,6 @@ async function saveTitleWith(trigger) {
     await cdp.evaluate(`document.querySelector(".tools-grip").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`);
     await sleep(250);
 
-    // put it back before the mobile pass so the menu clearance check means something
-    await cdp.evaluate(`document.querySelector(".bar-grip").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`);
-    await sleep(300);
-    await cdp.evaluate(`localStorage.removeItem("boards-toolbar")`);
-
-    await cdp.click(".title-btn");
-    await cdp.waitFor(`!!document.querySelector(".title-input")`, { label: "inline rename" });
-    const editorFocus = await cdp.evaluate(`(() => {
-      const input = document.querySelector(".title-input");
-      return {
-        active: document.activeElement === input,
-        value: input.value,
-        selected: input.selectionStart === 0 && input.selectionEnd === input.value.length,
-      };
-    })()`);
-    check("inline rename focuses and selects the title", editorFocus.active && editorFocus.selected, JSON.stringify(editorFocus));
-    await cdp.type("ชื่อแก้จากปุ่ม");
-    await cdp.click(".title-save");
-    await cdp.waitFor(`!document.querySelector(".title-input")`, { label: "save button close" });
-    await sleep(200);
-    check("explicit save button renames board", (await readTitleText()) === "ชื่อแก้จากปุ่ม", await readTitleText());
-    check("save button persists title", (await metaTitle(BOARD)) === "ชื่อแก้จากปุ่ม", await metaTitle(BOARD));
-
-    await cdp.navigate(`${BASE}/b/${BOARD}`);
-    await cdp.waitFor(`!!document.querySelector(".title-btn")`, { label: "editor reload" });
-    check("renamed title survives reload", (await readTitleText()) === "ชื่อแก้จากปุ่ม", await readTitleText());
-
-    await cdp.click(".title-btn");
-    await cdp.waitFor(`!!document.querySelector(".title-input")`, { label: "escape rename" });
-    await cdp.type("ชื่อที่ไม่ควรถูกบันทึก");
-    await cdp.key("Escape", "Escape", 27);
-    await cdp.waitFor(`!document.querySelector(".title-input")`, { label: "escape close" });
-    await sleep(250);
-    check("Escape restores the old title", (await readTitleText()) === "ชื่อแก้จากปุ่ม", await readTitleText());
-    check("Escape does not persist a title", (await metaTitle(BOARD)) === "ชื่อแก้จากปุ่ม", await metaTitle(BOARD));
-
-    const enterTitle = await saveTitleWith("enter");
-    check("Enter persists title", enterTitle.startsWith("ชื่อจาก Enter"), enterTitle);
-    check("Enter saved to API", (await metaTitle(BOARD)) === enterTitle, await metaTitle(BOARD));
-
-    const blurTitle = await saveTitleWith("blur");
-    check("blur persists title", blurTitle.startsWith("ชื่อจาก Blur"), blurTitle);
-    check("blur saved to API", (await metaTitle(BOARD)) === blurTitle, await metaTitle(BOARD));
-
     const tablePlacement = await cdp.evaluate(`(() => {
       const table = document.querySelector(".tools-table");
       const stack = document.querySelector(".App-toolbar .Stack_horizontal");
@@ -670,7 +503,6 @@ async function saveTitleWith(trigger) {
         insideTools: Boolean(r && r.left >= tools.left - 1 && r.right <= tools.right + 1),
         w: r ? r.width : null, h: r ? r.height : null,
         nativeW: native ? native.width : null, nativeH: native ? native.height : null,
-        barHasTableButton: !!document.querySelector(".bar .table-btn"),
         label: table ? table.getAttribute("aria-label") : null,
       };
     })()`);
@@ -681,12 +513,10 @@ async function saveTitleWith(trigger) {
         Math.abs((tablePlacement.h ?? 0) - (tablePlacement.nativeH ?? 29)) < 1.5,
       JSON.stringify(tablePlacement),
     );
-    check("floating bar no longer carries a table button", tablePlacement.barHasTableButton === false, JSON.stringify(tablePlacement));
 
     const presenceBox = await cdp.evaluate(`(() => {
       const p = document.querySelector(".presence");
       const r = p.getBoundingClientRect();
-      const bar = document.querySelector(".bar").getBoundingClientRect();
       const row = p.closest(".layer-ui__wrapper__top-right");
       const lib = document.querySelector(".layer-ui__wrapper__top-right .sidebar-trigger");
       const libRect = lib ? lib.getBoundingClientRect() : null;
@@ -702,8 +532,6 @@ async function saveTitleWith(trigger) {
         avatarInk: p.querySelector(".presence-avatar") ? getComputedStyle(p.querySelector(".presence-avatar")).color : null,
         count: p.querySelector(".presence-count")?.textContent ?? null,
         title: p.getAttribute("title"),
-        barHasLiveChip: !!document.querySelector(".bar .live"),
-        barBottom: Math.round(bar.bottom),
       };
     })()`);
     check(
@@ -721,12 +549,6 @@ async function saveTitleWith(trigger) {
     check(
       "presence shows an avatar stack with a peer count",
       presenceBox.avatars >= 1 && /\u0e04\u0e19/.test(presenceBox.count || ""),
-      JSON.stringify(presenceBox),
-    );
-    check("floating bar no longer carries the presence chip", presenceBox.barHasLiveChip === false, JSON.stringify(presenceBox));
-    check(
-      "presence leaves the floating bar its own row",
-      presenceBox.barBottom <= presenceBox.top,
       JSON.stringify(presenceBox),
     );
 
@@ -779,39 +601,27 @@ async function saveTitleWith(trigger) {
       (await cdp.evaluate(`document.querySelector(".tools-table").classList.contains("active")`)) === false,
     );
 
-    // a position saved on a wide screen must be clamped when the editor opens narrow
-    await cdp.evaluate(`localStorage.setItem("boards-toolbar", JSON.stringify({ x: 260, y: 10, collapsed: false }))`);
     await cdp.viewport(393, 852, true);
     await cdp.navigate(`${BASE}/b/${BOARD}`);
-    await cdp.waitFor(`!!document.querySelector(".title-btn")`, { label: "mobile editor" });
+    await cdp.waitFor(`!!document.querySelector(".presence") && !document.querySelector(".bar")`, { label: "mobile editor" });
     await sleep(300);
-    const mobileBefore = await cdp.evaluate(`(() => {
-      const bar = document.querySelector(".bar").getBoundingClientRect();
-      const vw = document.documentElement.clientWidth;
-      return {
-        overflow: document.documentElement.scrollWidth - vw,
-        title: document.querySelector(".title-btn .title-text").textContent,
-        barLeft: bar.left, barRight: bar.right, vw,
-      };
-    })()`);
-    check("mobile editor has no horizontal overflow", mobileBefore.overflow <= 1, JSON.stringify(mobileBefore));
-    check(
-      "saved toolbar position is clamped on mobile",
-      mobileBefore.barLeft >= 0 && mobileBefore.barRight <= mobileBefore.vw + 1,
-      JSON.stringify({ left: mobileBefore.barLeft, right: mobileBefore.barRight, vw: mobileBefore.vw }),
-    );
+    const mobileBefore = await cdp.evaluate(`(() => ({
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      appBar: !!document.querySelector(".bar"),
+    }))()`);
+    check("mobile editor has no horizontal overflow", mobileBefore.overflow <= 1 && !mobileBefore.appBar, JSON.stringify(mobileBefore));
 
     const mobileOverlay = await cdp.evaluate(`(() => {
-      const bar = document.querySelector(".bar").getBoundingClientRect();
+      const back = document.querySelector(".back-fab").getBoundingClientRect();
       const canvas = document.querySelector(".canvas").getBoundingClientRect();
       const menu = document.querySelector(".FixedSideContainer_side_top")?.getBoundingClientRect();
-      return { barBottom: bar.bottom, canvasTop: canvas.top, menuTop: menu ? menu.top : null };
+      return { backBottom: back.bottom, canvasTop: canvas.top, menuTop: menu ? menu.top : null };
     })()`);
     check(
-      "mobile toolbar floats over the canvas",
-      mobileOverlay.canvasTop < mobileOverlay.barBottom - 8 &&
+      "mobile canvas runs under the back button",
+      mobileOverlay.canvasTop < mobileOverlay.backBottom - 8 &&
         mobileOverlay.menuTop !== null &&
-        mobileOverlay.barBottom <= mobileOverlay.menuTop - 4,
+        mobileOverlay.backBottom <= mobileOverlay.menuTop - 4,
       JSON.stringify(mobileOverlay),
     );
 
@@ -834,7 +644,6 @@ async function saveTitleWith(trigger) {
     const mobilePresence = await cdp.evaluate(`(() => {
       const p = document.querySelector(".presence");
       const r = p.getBoundingClientRect();
-      const bar = document.querySelector(".bar").getBoundingClientRect();
       const table = document.querySelector(".tools-table");
       const tools = document.querySelector(".App-toolbar").getBoundingClientRect();
       const t = table ? table.getBoundingClientRect() : null;
@@ -845,18 +654,12 @@ async function saveTitleWith(trigger) {
         docked: Boolean(p.closest(".layer-ui__wrapper__top-right")),
         parent: p.parentElement.className,
         avatars: p.querySelectorAll(".presence-avatar").length,
-        barRight: bar.right,
         tableInside: Boolean(t && table.closest(".App-toolbar") && t.left >= tools.left - 1 && t.right <= Math.min(tools.right, vw) + 1),
       };
     })()`);
     check(
       "mobile presence stays in the top-right corner",
       mobilePresence.display !== "none" && mobilePresence.fromRight <= 12 && mobilePresence.top <= 12,
-      JSON.stringify(mobilePresence),
-    );
-    check(
-      "mobile presence does not cover the floating bar",
-      mobilePresence.barRight < mobilePresence.left,
       JSON.stringify(mobilePresence),
     );
     check(
@@ -868,22 +671,6 @@ async function saveTitleWith(trigger) {
       "mobile drawing tools keep the table button inside the island",
       mobilePresence.tableInside,
       JSON.stringify(mobilePresence),
-    );
-    const mobileBarText = await cdp.evaluate(`(() => {
-      const text = document.querySelector(".title-text").getBoundingClientRect();
-      const save = document.querySelector(".save").getBoundingClientRect();
-      const saveText = document.querySelector(".save-text");
-      return {
-        titleText: Math.round(text.width),
-        saveW: Math.round(save.width),
-        saveText: saveText ? getComputedStyle(saveText).display : null,
-      };
-    })()`);
-    check("mobile bar still shows the board name", mobileBarText.titleText >= 40, JSON.stringify(mobileBarText));
-    check(
-      "mobile save status shrinks to its dot",
-      mobileBarText.saveW <= 20 && mobileBarText.saveText === "none",
-      JSON.stringify(mobileBarText),
     );
     check(
       "mobile back button stays in the top-left corner",
@@ -902,24 +689,6 @@ async function saveTitleWith(trigger) {
       "mobile tools fold and come back",
       (await cdp.evaluate(`getComputedStyle(document.querySelector(".App-toolbar")).display`)) !== "none",
     );
-
-    await cdp.click(".title-btn");
-    await cdp.waitFor(`!!document.querySelector(".title-input")`, { label: "mobile rename" });
-    const mobileInput = await cdp.evaluate(`(() => {
-      const input = document.querySelector(".title-input");
-      const save = document.querySelector(".title-save");
-      const a = input.getBoundingClientRect(), b = save.getBoundingClientRect();
-      const vw = document.documentElement.clientWidth;
-      return { inputW: a.width, saveW: b.width, saveLeft: b.left, saveRight: b.right, vw,
-        visible: a.width > 80 && b.width > 0 && b.right <= vw };
-    })()`);
-    check("mobile inline input and save stay visible", mobileInput.visible, JSON.stringify(mobileInput));
-    await cdp.evaluate(`document.querySelector(".title-input").select()`);
-    await cdp.type("ชื่อบนมือถือ");
-    await cdp.key("Enter", "Enter", 13);
-    await cdp.waitFor(`!document.querySelector(".title-input")`, { label: "mobile save" });
-    await sleep(300);
-    check("mobile rename works", (await metaTitle(BOARD)) === "ชื่อบนมือถือ", await metaTitle(BOARD));
     await cdp.viewport(null);
 
     await cdp.navigate(`${BASE}/b/${BOARD}`);
@@ -1104,7 +873,7 @@ async function saveTitleWith(trigger) {
       return { active: document.activeElement === input, value: input.value,
         selected: input.selectionStart === 0 && input.selectionEnd === input.value.length };
     })()`);
-    check("catalog rename modal focuses and selects", renameFocus.active && renameFocus.selected && renameFocus.value === "ชื่อบนมือถือ", JSON.stringify(renameFocus));
+    check("catalog rename modal focuses and selects", renameFocus.active && renameFocus.selected, JSON.stringify(renameFocus));
     await cdp.evaluate(`document.getElementById("rename-input").value = ""`);
     await cdp.click("#rename-save");
     await cdp.waitFor(`document.getElementById("rename-note").hidden === false`, {
@@ -1122,8 +891,9 @@ async function saveTitleWith(trigger) {
     check("catalog rename persists to API", (await metaTitle(BOARD)) === "ชื่อจากแคตตาล็อก", await metaTitle(BOARD));
 
     await cdp.navigate(`${BASE}/b/${BOARD}`);
-    await cdp.waitFor(`!!document.querySelector(".title-btn")`, { label: "editor after catalog rename" });
-    check("editor sees catalog rename", (await readTitleText()) === "ชื่อจากแคตตาล็อก", await readTitleText());
+    await cdp.waitFor(`!!document.querySelector(".presence")`, { label: "editor after catalog rename" });
+    const editorTitle = await cdp.evaluate(`document.title`);
+    check("editor tab follows the catalog rename", editorTitle.startsWith("ชื่อจากแคตตาล็อก"), editorTitle);
     await cdp.screenshot("/tmp/e2e-editor.png");
 
     await cdp.navigate(`${BASE}/`);

@@ -10,15 +10,8 @@ const LIVE_DELAY = 300; // websocket push while several people edit
 const ARM_DELAY = 1200; // ignore the onChange burst that follows the initial load
 const SAVE_APP_STATE = ["viewBackgroundColor", "gridSize", "gridStep", "gridModeEnabled", "theme"];
 
-const SAVE_LABEL = {
-  idle: "พร้อม",
-  dirty: "ยังไม่บันทึก",
-  saving: "กำลังบันทึก…",
-  saved: "บันทึกแล้ว",
-  error: "บันทึกไม่สำเร็จ",
-};
-
-/* Inline icons: the bar needs five small glyphs, not an icon dependency. */
+/* Inline icons: the board chrome needs only a back arrow, a tools glyph and the
+   table button, not an icon dependency. */
 const icon = {
   width: 16,
   height: 16,
@@ -35,54 +28,6 @@ const icon = {
 const IconBack = () => (
   <svg {...icon}>
     <path d="M15 5l-7 7 7 7" />
-  </svg>
-);
-const IconPencil = () => (
-  <svg {...icon} width={13} height={13}>
-    <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z" />
-  </svg>
-);
-const IconLink = () => (
-  <svg {...icon}>
-    <path d="M10.5 13.5a4.5 4.5 0 0 0 6.4 0l2.1-2.1a4.5 4.5 0 0 0-6.4-6.4l-1.1 1.1" />
-    <path d="M13.5 10.5a4.5 4.5 0 0 0-6.4 0l-2.1 2.1a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1" />
-  </svg>
-);
-const IconCheck = () => (
-  <svg {...icon}>
-    <path d="M20 6L9 17l-5-5" />
-  </svg>
-);
-const IconX = () => (
-  <svg {...icon}>
-    <path d="M6 6l12 12M18 6L6 18" />
-  </svg>
-);
-const IconDownload = () => (
-  <svg {...icon}>
-    <path d="M12 4v11" />
-    <path d="M7.5 11.5L12 16l4.5-4.5" />
-    <path d="M5 20h14" />
-  </svg>
-);
-const IconGrip = () => (
-  <svg {...icon} width={14} height={14} fill="currentColor" stroke="none">
-    <circle cx="9" cy="6" r="1.6" />
-    <circle cx="15" cy="6" r="1.6" />
-    <circle cx="9" cy="12" r="1.6" />
-    <circle cx="15" cy="12" r="1.6" />
-    <circle cx="9" cy="18" r="1.6" />
-    <circle cx="15" cy="18" r="1.6" />
-  </svg>
-);
-const IconMinus = () => (
-  <svg {...icon}>
-    <path d="M5 12h14" />
-  </svg>
-);
-const IconMenu = () => (
-  <svg {...icon}>
-    <path d="M4 7h16M4 12h16M4 17h16" />
   </svg>
 );
 const IconTools = () => (
@@ -236,28 +181,8 @@ function themeOf(appState) {
   return appState && appState.theme === "dark" ? "dark" : "light";
 }
 
-/* The floating toolbar remembers where it was put and whether it is folded.
-   Bad or missing saved data simply falls back to the top-left corner. */
-const TOOLBAR_KEY = "boards-toolbar";
-const TOOLBAR_MARGIN = 6;
-const TOOLBAR_MIN_X = 58;
-const PRESENCE_GAP = 8; // keeps the floating bar clear of the avatar stack
-
-function readToolbarPrefs() {
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(TOOLBAR_KEY) || "null");
-    return {
-      x: Number.isFinite(saved?.x) ? saved.x : TOOLBAR_MIN_X,
-      y: Number.isFinite(saved?.y) ? saved.y : 10,
-      collapsed: saved?.collapsed === true,
-    };
-  } catch {
-    return { x: TOOLBAR_MIN_X, y: 10, collapsed: false };
-  }
-}
-
-/* The drawing tools get the same treatment: drag the little grip to float
-   them anywhere, and fold them away when the canvas needs the room. */
+/* The drawing tools float above the canvas: drag the little grip to move them
+   anywhere, and fold them away when the canvas needs the room. */
 const TOOLS_KEY = "boards-tools";
 const TOOLS_MARGIN = 8;
 
@@ -280,24 +205,12 @@ export default function App() {
   const [phase, setPhase] = useState("loading"); // loading | ready | error
   const [scene, setScene] = useState(null);
   const [fatal, setFatal] = useState(null);
-  const [saveState, setSaveState] = useState("idle"); // idle | dirty | saving | saved | error
   const [panelOpen, setPanelOpen] = useState(false);
   const [selectedGrid, setSelectedGrid] = useState(null);
   const [peers, setPeers] = useState([]);
   const [live, setLive] = useState("connecting"); // connecting | open | closed
-  const [copied, setCopied] = useState(false);
   const [title, setTitle] = useState(boardId || "");
-  const [titleDraft, setTitleDraft] = useState("");
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleError, setTitleError] = useState("");
   const [theme, setTheme] = useState("light");
-  const toolbarPrefsRef = useRef(null);
-  if (!toolbarPrefsRef.current) toolbarPrefsRef.current = readToolbarPrefs();
-  const [toolbarPos, setToolbarPos] = useState(() => ({
-    x: toolbarPrefsRef.current.x,
-    y: toolbarPrefsRef.current.y,
-  }));
-  const [toolbarCollapsed, setToolbarCollapsed] = useState(toolbarPrefsRef.current.collapsed);
   const toolsPrefsRef = useRef(null);
   if (!toolsPrefsRef.current) toolsPrefsRef.current = readToolsPrefs();
   const [toolsPos, setToolsPos] = useState(() => {
@@ -326,12 +239,7 @@ export default function App() {
   const remoteRef = useRef(null);
   const remoteTimerRef = useRef(0);
   const goneRef = useRef(false);
-  const editingTitleRef = useRef(false);
-  const titleInputRef = useRef(null);
-  const barRef = useRef(null);
   const presenceRef = useRef(null);
-  const toolbarDragRef = useRef(null);
-  const toolbarClickRef = useRef(false);
   const canvasRef = useRef(null);
   const toolsRef = useRef(null);
   const toolsNaturalRef = useRef(null);
@@ -394,212 +302,6 @@ export default function App() {
     if (phase === "ready") document.title = `${title} · Excalidraw boards`;
   }, [phase, title]);
 
-  /* ---------------------------------------------------------------- title */
-
-  const beginTitleEdit = useCallback(() => {
-    setTitleDraft(title);
-    setTitleError("");
-    editingTitleRef.current = true;
-    setEditingTitle(true);
-  }, [title]);
-
-  const cancelTitleEdit = useCallback(() => {
-    editingTitleRef.current = false;
-    setEditingTitle(false);
-    setTitleDraft("");
-  }, []);
-
-  const saveTitle = useCallback(
-    async (value) => {
-      const next = String(value ?? "").trim();
-      const previous = title;
-      editingTitleRef.current = false;
-      setEditingTitle(false);
-      setTitleDraft("");
-
-      const shown = next || boardId; // blank = go back to the id (server-side fallback)
-      if (!boardId || goneRef.current || shown === previous) return;
-
-      setTitle(shown); // optimistic: the header never waits for the round trip
-      setTitleError("");
-      try {
-        const res = await fetch(`/api/boards/${encodeURIComponent(boardId)}/meta`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ title: next }),
-        });
-        if (!res.ok) throw new Error(`(${res.status})`);
-        const meta = await res.json();
-        if (typeof meta?.title === "string" && meta.title) setTitle(meta.title);
-      } catch (error) {
-        console.error("[title]", error);
-        setTitle(previous);
-        setTitleError("บันทึกชื่อไม่สำเร็จ");
-        window.setTimeout(() => setTitleError((current) => (current === "บันทึกชื่อไม่สำเร็จ" ? "" : current)), 4000);
-      }
-    },
-    [boardId, title],
-  );
-
-  // focus + select all as soon as the inline input appears
-  useEffect(() => {
-    if (!editingTitle) return;
-    const input = titleInputRef.current;
-    if (!input) return;
-    input.focus();
-    input.select();
-  }, [editingTitle]);
-
-  /* -------------------------------------------------------- floating toolbar */
-
-  /* Where the bar may sit: inside the viewport, and out of the avatar stack
-     that owns the top-right corner (it is fixed there, same band as the bar). */
-  const toolbarBounds = useCallback((rect) => {
-    // Excalidraw reports a zoomed layout width on mobile emulation; the
-    // document client box is the box the bar is actually laid out in.
-    const viewW = document.documentElement.clientWidth || window.innerWidth;
-    const viewH = document.documentElement.clientHeight || window.innerHeight;
-    let reserve = 0;
-    const pill = presenceRef.current?.getBoundingClientRect();
-    if (pill && pill.width > 0 && rect && pill.top < rect.bottom && pill.bottom > rect.top) {
-      reserve = Math.max(0, viewW - pill.left + PRESENCE_GAP);
-    }
-    return {
-      maxX: Math.max(TOOLBAR_MIN_X, viewW - (rect?.width || 0) - TOOLBAR_MARGIN - reserve),
-      maxY: Math.max(TOOLBAR_MARGIN, viewH - (rect?.height || 0) - TOOLBAR_MARGIN),
-    };
-  }, []);
-
-  const clampToolbar = useCallback(() => {
-    const el = barRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const { maxX, maxY } = toolbarBounds(rect);
-    setToolbarPos((pos) => {
-      const x = Math.min(Math.max(TOOLBAR_MIN_X, pos.x), maxX);
-      const y = Math.min(Math.max(TOOLBAR_MARGIN, pos.y), maxY);
-      return x === pos.x && y === pos.y ? pos : { x, y };
-    });
-  }, [toolbarBounds]);
-
-  // the bar changes width when it folds or the title goes into edit mode, and
-  // it first appears only after the board has loaded
-  useEffect(() => {
-    clampToolbar();
-  }, [clampToolbar, toolbarCollapsed, editingTitle, phase, peers.length]);
-
-  useEffect(() => {
-    const onResize = () => clampToolbar();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [clampToolbar]);
-
-  // the stylesheet can land after the board does, making the bar wider than it
-  // was when the position was first clamped — watch its box and clamp again
-  useEffect(() => {
-    if (phase !== "ready") return undefined;
-    const el = barRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(() => clampToolbar());
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [clampToolbar, phase]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        window.localStorage.setItem(
-          TOOLBAR_KEY,
-          JSON.stringify({ ...toolbarPos, collapsed: toolbarCollapsed }),
-        );
-      } catch {
-        /* private mode: remembering the spot is optional */
-      }
-    }, 200);
-    return () => window.clearTimeout(timer);
-  }, [toolbarPos, toolbarCollapsed]);
-
-  const toggleToolbar = useCallback(() => {
-    if (toolbarClickRef.current) return;
-    // folding the bar while a name is being typed would hide the draft
-    if (editingTitleRef.current) void saveTitle(titleDraft);
-    setToolbarCollapsed((collapsed) => !collapsed);
-  }, [saveTitle, titleDraft]);
-
-  const resetToolbarPosition = useCallback(() => {
-    setToolbarPos({ x: TOOLBAR_MIN_X, y: 10 });
-    window.requestAnimationFrame(() => clampToolbar());
-  }, [clampToolbar]);
-
-  const startToolbarDrag = useCallback((event) => {
-    if (event.button !== 0) return;
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const control = target.closest("button, a, input, select, textarea");
-    // only the grip (or empty bar space) drags; the fold button must keep its click
-    if (control && !control.classList.contains("bar-grip")) return;
-    const el = barRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    toolbarDragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: rect.left,
-      originY: rect.top,
-      moved: false,
-      captured: false,
-    };
-  }, []);
-
-  const moveToolbar = useCallback((event) => {
-    const drag = toolbarDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    const dx = event.clientX - drag.startX;
-    const dy = event.clientY - drag.startY;
-    if (!drag.moved) {
-      if (Math.abs(dx) + Math.abs(dy) < 5) return;
-      drag.moved = true;
-      const el = barRef.current;
-      if (el) {
-        try {
-          el.setPointerCapture(event.pointerId);
-          drag.captured = true;
-        } catch {
-          /* pointer already gone; window resize still clamps the bar */
-        }
-      }
-    }
-    const el = barRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const { maxX, maxY } = toolbarBounds(rect);
-    setToolbarPos({
-      x: Math.min(Math.max(TOOLBAR_MIN_X, drag.originX + dx), maxX),
-      y: Math.min(Math.max(TOOLBAR_MARGIN, drag.originY + dy), maxY),
-    });
-  }, [toolbarBounds]);
-
-  const endToolbarDrag = useCallback((event) => {
-    const drag = toolbarDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    toolbarDragRef.current = null;
-    if (drag.moved) {
-      // a drag that ends on the fold button must not also toggle it
-      toolbarClickRef.current = true;
-      window.setTimeout(() => {
-        toolbarClickRef.current = false;
-      }, 0);
-    }
-    if (drag.captured) {
-      try {
-        barRef.current?.releasePointerCapture(event.pointerId);
-      } catch {
-        /* already released */
-      }
-    }
-  }, []);
-
   /* ------------------------------------------------------ floating draw tools */
 
   const clampTools = useCallback(() => {
@@ -617,10 +319,6 @@ export default function App() {
       const y = Math.min(Math.max(TOOLS_MARGIN, pos.y), maxY);
       return x === pos.x && y === pos.y ? pos : { x, y };
     });
-  }, []);
-
-  const toggleTools = useCallback(() => {
-    setToolsCollapsed((collapsed) => !collapsed);
   }, []);
 
   const resetToolsPosition = useCallback(() => {
@@ -885,7 +583,6 @@ export default function App() {
   const saveOverHttp = useCallback(async () => {
     const body = pendingRef.current;
     if (!body || !boardId || goneRef.current) return;
-    setSaveState("saving");
     try {
       const res = await fetch(`/api/boards/${encodeURIComponent(boardId)}`, {
         method: "PUT",
@@ -895,10 +592,8 @@ export default function App() {
       if (!res.ok) throw new Error(await res.text());
       lastSavedRef.current = body;
       if (pendingRef.current === body) pendingRef.current = null;
-      setSaveState("saved");
     } catch (error) {
       console.error("[save]", error);
-      setSaveState("error");
     }
   }, [boardId]);
 
@@ -908,7 +603,6 @@ export default function App() {
     if (!body || goneRef.current) return;
     if (ws && ws.readyState === 1) {
       lastSentRef.current = body;
-      setSaveState("saving");
       ws.send(JSON.stringify({ type: "update", scene: JSON.parse(body) }));
       return;
     }
@@ -927,12 +621,10 @@ export default function App() {
       if (body === lastSavedRef.current || body === lastSentRef.current) {
         if (body === lastSavedRef.current) {
           pendingRef.current = null;
-          setSaveState("saved");
         }
         return;
       }
       pendingRef.current = body;
-      setSaveState("dirty");
       window.clearTimeout(timerRef.current);
       const ws = wsRef.current;
       // a hidden tab has its timers throttled to about one tick a second, so a
@@ -1060,7 +752,6 @@ export default function App() {
       // applies them, so both sides would otherwise look dirty forever.
       lastSavedRef.current = body;
       lastSentRef.current = body;
-      setSaveState("saved");
     }
   }, [queueSave]);
 
@@ -1118,21 +809,17 @@ export default function App() {
         } else if (message.type === "saved") {
           if (lastSentRef.current) lastSavedRef.current = lastSentRef.current;
           pendingRef.current = null;
-          setSaveState("saved");
         } else if (message.type === "save-failed") {
-          setSaveState("error");
         } else if (message.type === "deleted") {
           // do not let a pending flush PUT the file straight back
           goneRef.current = true;
           window.clearTimeout(timerRef.current);
           window.clearTimeout(remoteTimerRef.current);
           pendingRef.current = null;
-          setSaveState("idle");
           setFatal("กระดานนี้ถูกลบไปแล้ว");
         } else if (message.type === "meta") {
-          // someone else renamed the board: follow it, unless this tab is typing
-          // a new name right now (their keystrokes must not be overwritten)
-          if (!editingTitleRef.current && typeof message.title === "string" && message.title) {
+          // someone else renamed the board: the tab title follows it
+          if (typeof message.title === "string" && message.title) {
             setTitle(message.title);
           }
         }
@@ -1355,18 +1042,6 @@ export default function App() {
     [queueSave],
   );
 
-  /* ---------------------------------------------------------------- share */
-
-  const copyLink = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      window.prompt("คัดลอกลิงก์นี้ไปให้คนอื่น", window.location.href);
-    }
-  }, []);
-
   /* ---------------------------------------------------------------- render */
 
   if (phase === "error") {
@@ -1437,7 +1112,7 @@ export default function App() {
   );
 
   return (
-    <div className={`shell${panelOpen ? " panel-open" : ""}${editingTitle ? " editing-title" : ""}${toolsReady && toolsCollapsed ? " tools-collapsed" : ""}`}>
+    <div className={`shell${panelOpen ? " panel-open" : ""}${toolsReady && toolsCollapsed ? " tools-collapsed" : ""}`}>
       {presenceHost ? createPortal(presenceNode, presenceHost) : presenceNode}
       {tableSlot &&
         createPortal(
@@ -1456,146 +1131,6 @@ export default function App() {
       <a className="back-fab" href="/" aria-label="กลับไปหน้ารวมกระดาน" title="กลับไปหน้ารวมกระดาน">
         <IconBack />
       </a>
-      <header
-        ref={barRef}
-        className={`bar${toolbarCollapsed ? " collapsed" : ""}`}
-        style={{ left: toolbarPos.x, top: toolbarPos.y }}
-        onPointerDown={startToolbarDrag}
-        onPointerMove={moveToolbar}
-        onPointerUp={endToolbarDrag}
-        onPointerCancel={endToolbarDrag}
-      >
-        <button
-          type="button"
-          className="bar-grip"
-          aria-label="ลากแถบเครื่องมือ"
-          title="ลากเพื่อย้าย · ดับเบิลคลิกเพื่อวางกลับมุมเดิม"
-          onDoubleClick={resetToolbarPosition}
-        >
-          <IconGrip />
-        </button>
-        <div className="bar-content">
-        <div className="title-slot">
-          {editingTitle ? (
-            <>
-              <input
-                ref={titleInputRef}
-                className="title-input"
-                value={titleDraft}
-                maxLength={120}
-                aria-label="ชื่อกระดาน"
-                autoComplete="off"
-                spellCheck={false}
-                onPointerDown={(event) => event.stopPropagation()}
-                onChange={(event) => setTitleDraft(event.target.value)}
-                onBlur={() => {
-                  if (editingTitleRef.current) void saveTitle(titleDraft);
-                }}
-                onKeyDown={(event) => {
-                  event.stopPropagation();
-                  if (event.nativeEvent.isComposing) return;
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void saveTitle(titleDraft);
-                  } else if (event.key === "Escape") {
-                    event.preventDefault();
-                    cancelTitleEdit();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                className="icon-btn title-save"
-                aria-label="บันทึกชื่อกระดาน"
-                title="บันทึก (Enter)"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => void saveTitle(titleDraft)}
-              >
-                <IconCheck />
-              </button>
-              <button
-                type="button"
-                className="icon-btn title-cancel"
-                aria-label="ยกเลิกการแก้ชื่อ"
-                title="ยกเลิก (Esc)"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={cancelTitleEdit}
-              >
-                <IconX />
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="title-btn"
-              title="คลิกเพื่อแก้ชื่อกระดาน"
-              aria-label={`แก้ชื่อกระดาน: ${title}`}
-              onClick={beginTitleEdit}
-            >
-              <span className="title-text">{title}</span>
-              <span className="title-edit">
-                <IconPencil />
-                <span>แก้ชื่อ</span>
-              </span>
-            </button>
-          )}
-        </div>
-
-        <span className={`save ${saveState}`} aria-live="polite">
-          <i />
-          <span className="save-text">{SAVE_LABEL[saveState]}</span>
-        </span>
-
-        {titleError && (
-          <span className="title-error" role="status">
-            {titleError}
-          </span>
-        )}
-
-        <span className="spacer" />
-
-        <button
-          type="button"
-          className={`icon-btn bar-extra${copied ? " ok" : ""}`}
-          onClick={copyLink}
-          aria-label={copied ? "คัดลอกลิงก์แล้ว" : "คัดลอกลิงก์กระดานนี้"}
-          title={copied ? "คัดลอกลิงก์แล้ว" : "คัดลอกลิงก์"}
-        >
-          {copied ? <IconCheck /> : <IconLink />}
-        </button>
-
-        <a
-          className="icon-btn bar-extra"
-          href={`/scenes/${encodeURIComponent(boardId)}.excalidraw`}
-          download
-          aria-label="ดาวน์โหลดกระดาน"
-          title="ดาวน์โหลด .excalidraw"
-        >
-          <IconDownload />
-        </a>
-
-        <button
-          type="button"
-          className="icon-btn bar-tools"
-          onClick={toggleTools}
-          aria-label={toolsCollapsed ? "แสดงเครื่องมือวาด" : "ซ่อนเครื่องมือวาด"}
-          aria-expanded={!toolsCollapsed}
-          title={toolsCollapsed ? "แสดงเครื่องมือวาด" : "ซ่อนเครื่องมือวาด"}
-        >
-          <IconTools />
-        </button>
-        </div>
-        <button
-          type="button"
-          className="icon-btn bar-toggle"
-          aria-label={toolbarCollapsed ? "ขยายแถบเครื่องมือ" : "ย่อแถบเครื่องมือ"}
-          aria-expanded={!toolbarCollapsed}
-          title={toolbarCollapsed ? "ขยายแถบเครื่องมือ" : "ย่อแถบเครื่องมือ"}
-          onClick={toggleToolbar}
-        >
-          {toolbarCollapsed ? <IconMenu /> : <IconMinus />}
-        </button>
-      </header>
 
       <div className="canvas" ref={canvasRef}>
         <Excalidraw
