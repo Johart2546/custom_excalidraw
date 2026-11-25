@@ -6,7 +6,7 @@ services:
     ports:
       - "5001:5002"
     volumes:
-      # boards are plain .excalidraw files, edited in place
+      # one folder per board: <id>/scene.excalidraw + meta.json + history/
       - ./gallery/scenes:/data
       # catalogue + previews, generated on the host by gallery/build.mjs
       - ./gallery/site:/gallery:ro

@@ -298,7 +298,7 @@ try {
     };
     writer.ws.send(JSON.stringify({ type: "update", scene }));
     await writer.waitFor((s) => s.messages.some((m) => m.type === "saved"), "the save confirmation");
-    const saved = JSON.parse(await readFile(join(dataDir, `${id}.excalidraw`), "utf8"));
+    const saved = JSON.parse(await readFile(join(dataDir, id, "scene.excalidraw"), "utf8"));
     assert.equal(saved.elements.length, 1);
     assert.equal(saved.elements[0].id, "el1");
     await writer.close();

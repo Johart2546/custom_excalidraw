@@ -146,7 +146,7 @@ try {
     const res = await patchJson(id, { title: "  Test board  " });
     assert.equal(res.status, 200);
     assert.equal(res.body.title, "Test board");
-    const saved = JSON.parse(await readFile(join(dataDir, `${id}.meta.json`), "utf8"));
+    const saved = JSON.parse(await readFile(join(dataDir, id, "meta.json"), "utf8"));
     assert.deepEqual(saved, { title: "Test board" });
   });
 
@@ -160,13 +160,13 @@ try {
 
   await step("PATCH only the title keeps subtitle and tags", async () => {
     await writeFile(
-      join(dataDir, `${id}.meta.json`),
+      join(dataDir, id, "meta.json"),
       `${JSON.stringify({ title: "Old", subtitle: "คำอธิบาย", tags: ["a", "b"] }, null, 2)}\n`,
     );
     const res = await patchJson(id, { title: "Renamed" });
     assert.equal(res.status, 200);
     assert.deepEqual(res.body, { id, title: "Renamed", subtitle: "คำอธิบาย", tags: ["a", "b"] });
-    const saved = JSON.parse(await readFile(join(dataDir, `${id}.meta.json`), "utf8"));
+    const saved = JSON.parse(await readFile(join(dataDir, id, "meta.json"), "utf8"));
     assert.deepEqual(saved, { title: "Renamed", subtitle: "คำอธิบาย", tags: ["a", "b"] });
   });
 
@@ -174,16 +174,16 @@ try {
     const res = await patchJson(id, { title: "   " });
     assert.equal(res.status, 200);
     assert.deepEqual(res.body, { id, title: id, subtitle: "คำอธิบาย", tags: ["a", "b"] });
-    const saved = JSON.parse(await readFile(join(dataDir, `${id}.meta.json`), "utf8"));
+    const saved = JSON.parse(await readFile(join(dataDir, id, "meta.json"), "utf8"));
     assert.deepEqual(saved, { subtitle: "คำอธิบาย", tags: ["a", "b"] });
   });
 
   await step("a blank title removes an otherwise empty sidecar", async () => {
-    await writeFile(join(dataDir, `${id}.meta.json`), `${JSON.stringify({ title: "Only" }, null, 2)}\n`);
+    await writeFile(join(dataDir, id, "meta.json"), `${JSON.stringify({ title: "Only" }, null, 2)}\n`);
     const res = await patchJson(id, { title: "" });
     assert.equal(res.status, 200);
     assert.equal(res.body.title, id);
-    await assert.rejects(stat(join(dataDir, `${id}.meta.json`)), "sidecar should be gone");
+    await assert.rejects(stat(join(dataDir, id, "meta.json")), "sidecar should be gone");
   });
 
   await step("121 code points → 400, 120 → 200", async () => {
@@ -245,7 +245,7 @@ try {
   });
 
   await step("the scene file is untouched by meta writes", async () => {
-    const scene = JSON.parse(await readFile(join(dataDir, `${id}.excalidraw`), "utf8"));
+    const scene = JSON.parse(await readFile(join(dataDir, id, "scene.excalidraw"), "utf8"));
     assert.equal(scene.type, "excalidraw");
     assert.ok(Array.isArray(scene.elements));
   });
