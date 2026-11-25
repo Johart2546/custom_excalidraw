@@ -309,6 +309,9 @@ export default function App() {
   const [toolsEpoch, setToolsEpoch] = useState(0);
   // DOM slot inside the drawing tools row; the table button is portalled into it.
   const [tableSlot, setTableSlot] = useState(null);
+  // DOM slot inside Excalidraw's top-right menu row (next to Library), when that
+  // row exists. Phones have no such row, so the stack falls back to the corner.
+  const [presenceHost, setPresenceHost] = useState(null);
 
   const apiRef = useRef(null);
   const wsRef = useRef(null);
@@ -788,6 +791,61 @@ export default function App() {
       if (toolsRef.current === el) toolsRef.current = null;
     };
   }, [phase, resetToolsPosition, toolsEpoch]);
+
+  /* The avatar stack lives in Excalidraw's own top-right menu row, immediately
+     left of the Library button. That row is unmounted on phones, so the stack
+     falls back to the pinned corner pill there. */
+  useEffect(() => {
+    if (phase !== "ready") return undefined;
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    let host = null;
+    let queued = false;
+
+    const attach = () => {
+      const row = canvas.querySelector(".layer-ui__wrapper__top-right");
+      if (!row) {
+        if (host) {
+          host = null;
+          setPresenceHost(null);
+        }
+        return;
+      }
+      if (!host || !host.isConnected) {
+        host = document.createElement("span");
+        host.className = "presence-slot";
+        row.insertBefore(host, row.firstChild);
+        setPresenceHost(host);
+      } else if (row.firstElementChild !== host) {
+        // keep the stack immediately left of the Library button, whatever
+        // order Excalidraw re-renders its own row in
+        row.insertBefore(host, row.firstElementChild);
+      }
+    };
+
+    const schedule = () => {
+      if (queued) return;
+      queued = true;
+      window.requestAnimationFrame(() => {
+        queued = false;
+        attach();
+      });
+    };
+
+    attach();
+    // the menu is rebuilt on tool/theme/zen changes, and it disappears entirely
+    // when the viewport turns into a phone one
+    const observer = new MutationObserver(schedule);
+    observer.observe(canvas, { childList: true, subtree: true });
+    window.addEventListener("resize", schedule);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", schedule);
+      if (host) host.remove();
+      setPresenceHost(null);
+    };
+  }, [phase]);
 
   useEffect(() => {
     const el = toolsRef.current;
@@ -1341,37 +1399,46 @@ export default function App() {
         ? "กำลังเชื่อมต่อกับกระดานนี้"
         : "ออฟไลน์";
 
+  const presenceNode = (
+    <div
+      className={`presence ${live}${presenceHost ? " docked" : ""}`}
+      ref={presenceRef}
+      title={presenceTitle}
+      aria-label={presenceLabel}
+    >
+      {live === "open" ? (
+        <>
+          <span className="presence-avatars">
+            {shownPeers.map((peer) => (
+              <span
+                key={peer.id}
+                className="presence-avatar"
+                style={{ background: peer.color, color: avatarInk(peer.color) }}
+                title={peer.name}
+              >
+                {avatarInitial(peer.name)}
+              </span>
+            ))}
+            {extraPeers > 0 && (
+              <span className="presence-avatar presence-more" title={presenceTitle}>
+                +{extraPeers}
+              </span>
+            )}
+          </span>
+          <span className="presence-count">{liveLabel}</span>
+        </>
+      ) : (
+        <span className="presence-state">
+          <i />
+          {liveLabel}
+        </span>
+      )}
+    </div>
+  );
+
   return (
     <div className={`shell${panelOpen ? " panel-open" : ""}${editingTitle ? " editing-title" : ""}${toolsReady && toolsCollapsed ? " tools-collapsed" : ""}`}>
-      <div className={`presence ${live}`} ref={presenceRef} title={presenceTitle} aria-label={presenceLabel}>
-        {live === "open" ? (
-          <>
-            <span className="presence-avatars">
-              {shownPeers.map((peer) => (
-                <span
-                  key={peer.id}
-                  className="presence-avatar"
-                  style={{ background: peer.color, color: avatarInk(peer.color) }}
-                  title={peer.name}
-                >
-                  {avatarInitial(peer.name)}
-                </span>
-              ))}
-              {extraPeers > 0 && (
-                <span className="presence-avatar presence-more" title={presenceTitle}>
-                  +{extraPeers}
-                </span>
-              )}
-            </span>
-            <span className="presence-count">{liveLabel}</span>
-          </>
-        ) : (
-          <span className="presence-state">
-            <i />
-            {liveLabel}
-          </span>
-        )}
-      </div>
+      {presenceHost ? createPortal(presenceNode, presenceHost) : presenceNode}
       {tableSlot &&
         createPortal(
           <button

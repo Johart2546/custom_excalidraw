@@ -687,20 +687,35 @@ async function saveTitleWith(trigger) {
       const p = document.querySelector(".presence");
       const r = p.getBoundingClientRect();
       const bar = document.querySelector(".bar").getBoundingClientRect();
+      const row = p.closest(".layer-ui__wrapper__top-right");
+      const lib = document.querySelector(".layer-ui__wrapper__top-right .sidebar-trigger");
+      const libRect = lib ? lib.getBoundingClientRect() : null;
       return {
         cls: p.className,
-        fromRight: innerWidth - r.right, top: r.top, height: r.height, left: r.left,
+        docked: Boolean(row),
+        parent: p.parentElement.className,
+        rect: [r.left, r.top, r.right, r.bottom].map((n) => Math.round(n)),
+        top: Math.round(r.top), height: Math.round(r.height), left: Math.round(r.left),
+        libTop: libRect ? Math.round(libRect.top) : null,
+        libLeft: libRect ? Math.round(libRect.left) : null,
         avatars: p.querySelectorAll(".presence-avatar").length,
         avatarInk: p.querySelector(".presence-avatar") ? getComputedStyle(p.querySelector(".presence-avatar")).color : null,
         count: p.querySelector(".presence-count")?.textContent ?? null,
         title: p.getAttribute("title"),
         barHasLiveChip: !!document.querySelector(".bar .live"),
-        barRight: bar.right,
+        barBottom: Math.round(bar.bottom),
       };
     })()`);
     check(
-      "presence sits in the top-right corner",
-      presenceBox.fromRight <= 24 && presenceBox.top <= 20,
+      "presence rides in Excalidraw's top-right menu row",
+      presenceBox.docked === true && presenceBox.parent === "presence-slot",
+      JSON.stringify(presenceBox),
+    );
+    check(
+      "presence lines up with the library button",
+      presenceBox.libTop !== null &&
+        Math.abs(presenceBox.top - presenceBox.libTop) <= 2 &&
+        presenceBox.left <= presenceBox.libLeft - 8,
       JSON.stringify(presenceBox),
     );
     check(
@@ -709,7 +724,11 @@ async function saveTitleWith(trigger) {
       JSON.stringify(presenceBox),
     );
     check("floating bar no longer carries the presence chip", presenceBox.barHasLiveChip === false, JSON.stringify(presenceBox));
-    check("presence clears the floating bar", presenceBox.barRight < presenceBox.left, JSON.stringify(presenceBox));
+    check(
+      "presence leaves the floating bar its own row",
+      presenceBox.barBottom <= presenceBox.top,
+      JSON.stringify(presenceBox),
+    );
 
     const inertClosed = await cdp.evaluate(`document.querySelector(".panel").hasAttribute("inert")`);
     check("closed table panel is inert", inertClosed === true, inertClosed);
@@ -823,6 +842,8 @@ async function saveTitleWith(trigger) {
       return {
         fromRight: vw - r.right, top: r.top, left: r.left,
         display: getComputedStyle(p).display,
+        docked: Boolean(p.closest(".layer-ui__wrapper__top-right")),
+        parent: p.parentElement.className,
         avatars: p.querySelectorAll(".presence-avatar").length,
         barRight: bar.right,
         tableInside: Boolean(t && table.closest(".App-toolbar") && t.left >= tools.left - 1 && t.right <= Math.min(tools.right, vw) + 1),
@@ -836,6 +857,11 @@ async function saveTitleWith(trigger) {
     check(
       "mobile presence does not cover the floating bar",
       mobilePresence.barRight < mobilePresence.left,
+      JSON.stringify(mobilePresence),
+    );
+    check(
+      "mobile presence falls back to its own corner pill",
+      mobilePresence.docked === false && mobilePresence.parent.includes("shell"),
       JSON.stringify(mobilePresence),
     );
     check(
