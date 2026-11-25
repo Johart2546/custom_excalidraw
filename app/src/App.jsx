@@ -375,8 +375,12 @@ export default function App() {
     const el = barRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const maxX = Math.max(TOOLBAR_MARGIN, window.innerWidth - rect.width - TOOLBAR_MARGIN);
-    const maxY = Math.max(TOOLBAR_MARGIN, window.innerHeight - rect.height - TOOLBAR_MARGIN);
+    // Excalidraw reports a zoomed layout width on mobile emulation; the
+    // document client box is the box the bar is actually laid out in.
+    const viewW = document.documentElement.clientWidth || window.innerWidth;
+    const viewH = document.documentElement.clientHeight || window.innerHeight;
+    const maxX = Math.max(TOOLBAR_MARGIN, viewW - rect.width - TOOLBAR_MARGIN);
+    const maxY = Math.max(TOOLBAR_MARGIN, viewH - rect.height - TOOLBAR_MARGIN);
     setToolbarPos((pos) => {
       const x = Math.min(Math.max(TOOLBAR_MARGIN, pos.x), maxX);
       const y = Math.min(Math.max(TOOLBAR_MARGIN, pos.y), maxY);
@@ -384,16 +388,28 @@ export default function App() {
     });
   }, []);
 
-  // the bar changes width when it folds or the title goes into edit mode
+  // the bar changes width when it folds or the title goes into edit mode, and
+  // it first appears only after the board has loaded
   useEffect(() => {
     clampToolbar();
-  }, [clampToolbar, toolbarCollapsed, editingTitle]);
+  }, [clampToolbar, toolbarCollapsed, editingTitle, phase]);
 
   useEffect(() => {
     const onResize = () => clampToolbar();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [clampToolbar]);
+
+  // the stylesheet can land after the board does, making the bar wider than it
+  // was when the position was first clamped — watch its box and clamp again
+  useEffect(() => {
+    if (phase !== "ready") return undefined;
+    const el = barRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => clampToolbar());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [clampToolbar, phase]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

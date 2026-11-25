@@ -605,14 +605,27 @@ async function saveTitleWith(trigger) {
       label: "table panel close",
     });
 
+    // a position saved on a wide screen must be clamped when the editor opens narrow
+    await cdp.evaluate(`localStorage.setItem("boards-toolbar", JSON.stringify({ x: 260, y: 10, collapsed: false }))`);
     await cdp.viewport(393, 852, true);
     await cdp.navigate(`${BASE}/b/${BOARD}`);
     await cdp.waitFor(`!!document.querySelector(".title-btn")`, { label: "mobile editor" });
-    const mobileBefore = await cdp.evaluate(`(() => ({
-      overflow: document.documentElement.scrollWidth - window.innerWidth,
-      title: document.querySelector(".title-btn .title-text").textContent,
-    }))()`);
+    await sleep(300);
+    const mobileBefore = await cdp.evaluate(`(() => {
+      const bar = document.querySelector(".bar").getBoundingClientRect();
+      const vw = document.documentElement.clientWidth;
+      return {
+        overflow: document.documentElement.scrollWidth - vw,
+        title: document.querySelector(".title-btn .title-text").textContent,
+        barLeft: bar.left, barRight: bar.right, vw,
+      };
+    })()`);
     check("mobile editor has no horizontal overflow", mobileBefore.overflow <= 1, JSON.stringify(mobileBefore));
+    check(
+      "saved toolbar position is clamped on mobile",
+      mobileBefore.barLeft >= 0 && mobileBefore.barRight <= mobileBefore.vw + 1,
+      JSON.stringify({ left: mobileBefore.barLeft, right: mobileBefore.barRight, vw: mobileBefore.vw }),
+    );
 
     const mobileOverlay = await cdp.evaluate(`(() => {
       const bar = document.querySelector(".bar").getBoundingClientRect();
@@ -634,8 +647,9 @@ async function saveTitleWith(trigger) {
       const input = document.querySelector(".title-input");
       const save = document.querySelector(".title-save");
       const a = input.getBoundingClientRect(), b = save.getBoundingClientRect();
-      return { inputW: a.width, saveW: b.width, saveLeft: b.left, saveRight: b.right, vw: innerWidth,
-        visible: a.width > 80 && b.width > 0 && b.right <= innerWidth };
+      const vw = document.documentElement.clientWidth;
+      return { inputW: a.width, saveW: b.width, saveLeft: b.left, saveRight: b.right, vw,
+        visible: a.width > 80 && b.width > 0 && b.right <= vw };
     })()`);
     check("mobile inline input and save stay visible", mobileInput.visible, JSON.stringify(mobileInput));
     await cdp.evaluate(`document.querySelector(".title-input").select()`);
@@ -866,7 +880,7 @@ async function saveTitleWith(trigger) {
     await cdp.navigate(`${BASE}/`);
     await cdp.waitFor(`!!document.querySelector(".card")`, { label: "mobile catalog" });
     const mobileCatalog = await cdp.evaluate(`(() => ({
-      overflow: document.documentElement.scrollWidth - innerWidth,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       headerVisible: !!document.querySelector("header"),
       cardWidth: document.querySelector(".card").getBoundingClientRect().width,
     }))()`);

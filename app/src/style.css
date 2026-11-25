@@ -253,6 +253,7 @@ body {
 }
 
 .title-input {
+  user-select: text;
   width: min(40vw, 340px);
   min-width: 0;
   padding: 5px 9px;
