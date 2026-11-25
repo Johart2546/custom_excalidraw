@@ -1,21 +1,30 @@
 #!/usr/bin/env node
 /**
- * gallery/build.mjs — turn a folder of `.excalidraw` boards into a browsable catalog.
+ * gallery/build.mjs — turn a folder of board folders into a browsable catalog.
  *
  * Why this exists: the self-hosted Excalidraw image is a static frontend with no
- * storage of its own. Boards live as files; this script is the missing "index":
- * it scans gallery/scenes/, renders a PNG preview of each board, and writes a
- * static gallery page that nginx serves next to the app.
+ * storage of its own. Boards live as folders on disk; this script is the missing
+ * "index": it scans gallery/scenes/, renders a PNG preview of each board, and
+ * writes a static gallery page next to the app.
  *
  * Usage
  *   node gallery/build.mjs              # render missing/stale thumbnails, write site/
  *   node gallery/build.mjs --force      # re-render every thumbnail
  *   node gallery/build.mjs --no-render  # catalog only (thumbnails must exist)
+ *   SCENES_DIR=/tmp/x SITE_DIR=/tmp/y node gallery/build.mjs --no-render
  *
  * Per-scene metadata (optional)
- *   gallery/scenes/<name>.meta.json
+ *   gallery/scenes/<id>/meta.json
  *     { "title": "...", "subtitle": "...", "tags": ["..."] }
- *   Without it the title is derived from the file name.
+ *   Without it the title is derived from the folder name.
+ *
+ * Board layout (one folder per board, written by app/server.mjs)
+ *   <scenes>/<id>/scene.excalidraw            the board
+ *   <scenes>/<id>/meta.json                   optional sidecar
+ *   <scenes>/<id>/history/<stamp>.excalidraw  saved snapshots — never scanned
+ *
+ * Old flat boards (`<scenes>/<id>.excalidraw` + `<id>.meta.json`) are still
+ * picked up so a never-migrated board does not vanish from the catalogue.
  *
  * Output (gallery/site/, mounted read-only at /site in the container)
  *   index.html            catalog page
@@ -40,8 +49,9 @@ import { fileURLToPath } from "node:url";
 
 const HERE = resolve(fileURLToPath(import.meta.url), "..");
 const ROOT = resolve(HERE, "..");
-const SCENES = join(HERE, "scenes");
-const SITE = join(HERE, "site");
+/* Both roots are overridable so a test can build a throwaway catalog. */
+const SCENES = resolve(process.env.SCENES_DIR || join(HERE, "scenes"));
+const SITE = resolve(process.env.SITE_DIR || join(HERE, "site"));
 const THUMBS = join(SITE, "thumbs");
 const OUT_SCENES = join(SITE, "scenes");
 
@@ -112,37 +122,78 @@ function escapeHtml(value) {
 
 /* ------------------------------------------------------------------ scenes */
 
+function readMetaFile(metaPath) {
+  if (!existsSync(metaPath)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(metaPath, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    process.stderr.write(`  ! ignoring bad ${basename(metaPath)}: ${error.message}\n`);
+    return {};
+  }
+}
+
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function collectScenes() {
   if (!existsSync(SCENES)) {
     throw new Error(`scenes folder not found: ${SCENES}`);
   }
-  const names = readdirSync(SCENES);
-  const scenes = names
-    .filter((f) => extname(f) === ".excalidraw")
-    .sort()
-    .map((file) => {
-      const path = join(SCENES, file);
-      const slug = slugify(basename(file, ".excalidraw")) || "scene";
-      const metaPath = join(SCENES, `${basename(file, ".excalidraw")}.meta.json`);
-      let meta = {};
-      if (existsSync(metaPath)) {
-        try {
-          meta = JSON.parse(readFileSync(metaPath, "utf8"));
-        } catch (error) {
-          process.stderr.write(`  ! ignoring bad ${basename(metaPath)}: ${error.message}\n`);
-        }
-      }
-      return { file, path, slug, meta };
-    });
+  const names = readdirSync(SCENES).sort();
+  const scenes = [];
+  const ids = new Set();
+  const slugs = new Map();
 
-  // A sidecar whose scene is gone is ignored (the scan below only sees
-  // .excalidraw), but it lingers on disk — say so instead of leaving a puzzle.
-  const ids = new Set(scenes.map((scene) => basename(scene.file, ".excalidraw")));
+  const add = (id, path, metaPath) => {
+    if (!id || ids.has(id)) return;
+    const slug = slugify(id) || "scene";
+    if (slugs.has(slug)) {
+      process.stderr.write(`  ! skipping ${id}: slug ${slug} already used by ${slugs.get(slug)}\n`);
+      return;
+    }
+    ids.add(id);
+    slugs.set(slug, id);
+    scenes.push({ id, file: path, path, slug, meta: readMetaFile(metaPath) });
+  };
+
+  // Current layout: <scenes>/<id>/scene.excalidraw. Snapshots live in
+  // <id>/history/, one level below the file we read, so they are never scanned.
   for (const name of names) {
-    if (!name.endsWith(".meta.json")) continue;
+    if (name.startsWith(".")) continue;
+    const dir = join(SCENES, name);
+    if (!isDirectory(dir)) continue;
+    const scene = join(dir, "scene.excalidraw");
+    if (existsSync(scene)) add(name, scene, join(dir, "meta.json"));
+  }
+
+  // Legacy flat layout: <scenes>/<id>.excalidraw, still read by the server
+  // until that board's next save moves it into a folder.
+  for (const name of names) {
+    if (name.startsWith(".") || extname(name) !== ".excalidraw") continue;
+    const id = basename(name, ".excalidraw");
+    const file = join(SCENES, name);
+    let isFile = false;
+    try {
+      isFile = statSync(file).isFile();
+    } catch {
+      /* dangling entry */
+    }
+    if (isFile) add(id, file, join(SCENES, `${id}.meta.json`));
+  }
+
+  // A sidecar whose scene is gone is ignored, but it lingers on disk — say so
+  // instead of leaving a puzzle.
+  for (const name of names) {
+    if (name.startsWith(".") || !name.endsWith(".meta.json")) continue;
     const id = name.slice(0, -".meta.json".length);
     if (!ids.has(id)) {
-      process.stderr.write(`  ! orphan ${name}: no ${id}.excalidraw (ignored)\n`);
+      process.stderr.write(`  ! orphan ${name}: no ${id}/scene.excalidraw and no ${id}.excalidraw (ignored)\n`);
     }
   }
 
@@ -886,7 +937,7 @@ async function main() {
 
   const scenes = collectScenes();
   if (scenes.length === 0) {
-    process.stderr.write(`no .excalidraw files in ${SCENES}\n`);
+    process.stderr.write(`no boards in ${SCENES} (expected <id>/scene.excalidraw)\n`);
     process.exit(1);
   }
 
@@ -919,6 +970,7 @@ async function main() {
       const file = join(THUMBS, `${scene.slug}.png`);
       const px = thumb ? pngSize(file) : null;
       return {
+        id: scene.id,
         slug: scene.slug,
         title: scene.meta.title || humanize(scene.slug),
         subtitle: scene.meta.subtitle || "",

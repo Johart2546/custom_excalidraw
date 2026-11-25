@@ -40,22 +40,40 @@ app/                    # ตัวแอป (React + @excalidraw/excalidraw 0.1
   server.mjs            # node:http API + WebSocket ต่อกระดาน + static (dependency เดียว: ws)
   Dockerfile            # multi-stage: vite build -> node:24-slim
 gallery/
-  scenes/               # ← กระดานทั้งหมด (ไดเรกทอรีเดียวกับที่ API อ่าน/เขียน)
-  build.mjs             # สแกน scenes/ -> พรีวิว PNG + catalog (index.html)
+  scenes/               # ← กระดานทั้งหมด: scenes/<id>/scene.excalidraw (ไดเรกทอรีเดียวกับที่ API อ่าน/เขียน)
+  build.mjs             # สแกน scenes/<id>/ -> พรีวิว PNG + catalog (index.html)
   site/                 # ผลลัพธ์ของ build.mjs (ไม่ commit)
 docker/nginx.conf       # nginx ของ image ทางการ (เก็บไว้ใช้ถ้าอยากได้แค่ static)
 docker-compose.yml
 scripts/excalidraw-table.mjs  # CLI สร้างตารางเป็นไฟล์ .excalidraw (ใช้ใน CI/สคริปต์)
+scripts/migrate-scenes.mjs    # ย้ายกระดานรุ่นไฟล์แบน -> โฟลเดอร์ต่อกระดาน
 ```
 
 ## ที่เก็บข้อมูล
 
-- กระดาน 1 ใบ = ไฟล์ 1 ไฟล์: `gallery/scenes/<id>.excalidraw` (JSON มาตรฐานของ Excalidraw)
-- container mount `./gallery/scenes` → `/data` แบบอ่าน/เขียน และ `./gallery/site` → `/gallery` แบบอ่านอย่างเดียว
+- กระดาน 1 ใบ = **โฟลเดอร์ 1 โฟลเดอร์** ใต้ `gallery/scenes/` — ชื่อโฟลเดอร์คือ id สาธารณะที่ API และ URL ใช้:
+
+  ```
+  gallery/scenes/<id>/
+    scene.excalidraw               ← ไฟล์ที่ editor อ่าน/เขียน (JSON มาตรฐานของ Excalidraw)
+    meta.json                      ← ชื่อ/คำอธิบาย (ไม่มีก็ได้)
+    history/<เวลา ISO>.excalidraw  ← สำเนาก่อนถูกเขียนทับ (เก่าสุดอยู่ต้นชื่อ)
+  ```
+
+- container mount `./gallery/scenes` → `/data` แบบอ่าน/เขียน และ `./gallery/site` → `/gallery` แบบอ่านอย่างเดียว — โครงสร้างนี้อยู่บน host ตรง ๆ ไม่มีฐานข้อมูลให้ backup; จะย้ายเครื่องก็คัดลอกโฟลเดอร์ `gallery/scenes` ทั้งก้อน
 - ทุกครั้งที่บันทึก เซิร์ฟเวอร์จะ
-  1. copy ไฟล์เดิมไปเก็บที่ `gallery/scenes/.history/<id>/<เวลา ISO>.excalidraw` (เก็บ 20 เวอร์ชันล่าสุด)
+  1. copy ไฟล์เดิมไปเก็บที่ `gallery/scenes/<id>/history/<เวลา ISO>.excalidraw` (เก็บ **100** snapshot ล่าสุดต่อกระดาน — ดูหัวข้อถัดไป)
   2. เขียนไฟล์ใหม่แบบ atomic (`.tmp-...` แล้ว rename) — ไฟล์ไม่พังถ้าเขียนค้าง
-- ไฟล์ดิบของทุกกระดานอยู่ที่ `/scenes/<id>.excalidraw` — กด `ดาวน์โหลด` จากปุ่มบนการ์ดในหน้ารวม เอาไปเปิดที่อื่นได้ทันที
+- ไฟล์ดิบของทุกกระดานยังอยู่ที่ URL เดิม `/scenes/<id>.excalidraw` — กด `ดาวน์โหลด` จากปุ่มบนการ์ดในหน้ารวม เอาไปเปิดที่อื่นได้ทันที (ย้ายแค่ที่เก็บบนดิสก์ ลิงก์ที่แชร์ไว้จึงใช้ได้เหมือนเดิม)
+- กระดานรุ่นไฟล์แบน (`gallery/scenes/<id>.excalidraw` + `<id>.meta.json` + `.history/<id>/`) ยังเปิด/แก้ได้ตามเดิม: การเซฟครั้งแรกจะย้ายมันเข้าโฟลเดอร์ให้เอง (id ไม่เปลี่ยน) หรือย้ายทั้งหมดทีเดียวด้วยสคริปต์:
+
+  ```bash
+  node scripts/migrate-scenes.mjs --dry-run   # ดูแผนก่อน ไม่เขียนอะไร
+  node scripts/migrate-scenes.mjs             # ย้ายทุกกระดานเก่าเข้าโฟลเดอร์
+  DATA_DIR=/data node scripts/migrate-scenes.mjs   # ในคอนเทนเนอร์
+  ```
+
+- **สำรองข้อมูล**: `cp -a gallery/scenes ~/backups/scenes-$(date +%F)` ได้ทั้ง scene, meta และ history; ถ้าไม่ต้องการ history ให้ `rsync -a --exclude '*/history/' gallery/scenes/ ~/backups/scenes/` (กู้ = วางโฟลเดอร์กลับไปที่เดิม)
 - หน้าตาเป็นธีมสว่างแบบ glass morphism (เครื่องมือวาด/แผงตาราง/การ์ด catalog เป็นกระจกฝ้า) ทั้งหน้าแก้ไข ผืน canvas และ catalog (ไม่ตาม `prefers-color-scheme` ของเครื่อง) — กระดานที่บันทึก `appState.theme: "dark"` ไว้เองจะเปิดเป็นดาร์กตามที่เจ้าของตั้ง
 - หน้าแก้ไขใช้ **canvas เต็มหน้าจอ** และมี **แถบเครื่องมือวาดของ Excalidraw อันเดียว** — ไม่มีแถบของแอปเองทับด้านบนแล้ว:
   - ปุ่ม `←` กลับไปหน้ารวมกระดานลอยอยู่มุมซ้ายบนเพียงปุ่มเดียว; เกาะเครื่องมือวาดถูกดันลงมาไม่ให้ทับ
@@ -65,6 +83,28 @@ scripts/excalidraw-table.mjs  # CLI สร้างตารางเป็น�
   - ปุ่ม `–` ท้ายเกาะย่อเครื่องมือวาดไปเป็นปุ่ม `เครื่องมือ` ลอย; กดปุ่มนั้นเพื่อเปิดคืน
   - **ปุ่ม `ตาราง` (ไอคอนตาราง + เครื่องหมายบวก) อยู่ท้ายแถวเครื่องมือวาด** ถัดจากปุ่มเครื่องมือเพิ่มเติมของ Excalidraw และก่อนปุ่ม `–`; ขนาด/รัศมีมุมเท่าปุ่มเครื่องมืออื่น และติดสว่าง (accent) เมื่อแผงตารางเปิดอยู่
   - ตำแหน่ง/สถานะย่อจำใน `localStorage["boards-tools"]`
+
+## ประวัติการเซฟ (history)
+
+- **ค่าเริ่มต้น: เก็บ 100 snapshot ล่าสุดต่อกระดาน** (`HISTORY_KEEP=100`) — ก่อนหน้านี้เก็บ 20; ตั้งเป็นเลขอื่นได้ทั้งตอนรันในเครื่อง (`HISTORY_KEEP=20 node app/server.mjs`) และผ่าน environment ของ container
+- เกินจำนวนเมื่อไร เซิร์ฟเวอร์ลบ **เก่าสุดก่อน** ทีละไฟล์จนเหลือตามที่ตั้งไว้ — ไม่มี auto-archive และไม่ใช่ "เก็บไม่จำกัด"
+- ดูรายการที่เก็บจริงของกระดานหนึ่ง (เรียงใหม่สุดก่อน, คืนแค่ชื่อ/ขนาด/เวลา ไม่มี path ของเครื่อง):
+
+  ```bash
+  curl -s http://127.0.0.1:5001/api/boards/<id>/history
+  # { "id": "...", "keep": 100,
+  #   "history": [ { "name": "2026-11-25T10-59-33-123Z.excalidraw",
+  #                  "bytes": 4096, "savedAt": "2026-11-25T10:59:33.123Z" }, ... ] }
+  ```
+
+  ไม่มี endpoint ให้โหลด snapshot ผ่าน HTTP (กันประวัติทั้งกองหลุดออกไป) — กู้จากดิสก์โดยตรง:
+
+  ```bash
+  cp gallery/scenes/<id>/history/<ไฟล์>.excalidraw gallery/scenes/<id>/scene.excalidraw
+  ```
+
+  snapshot ถูกเก็บ **ก่อน** เขียนทับทุกครั้ง จึงเป็นเนื้อหาของเซฟครั้งก่อนหน้าเป๊ะ ๆ (ถ้าแอปเปิดอยู่ ให้หยุดแก้/หยุดแอปสักครู่ก่อนวางไฟล์ทับ ไม่งั้นแท็บที่เปิดอยู่อาจเขียนทับกลับ)
+- **undo ในตัว Excalidraw ไม่ใช่ history ที่เก็บถาวร**: undo stack อยู่ในหน่วยความจำของแท็บนั้น หมดเมื่อรีเฟรช/ปิดแท็บ และไม่เคยถูกเขียนลงดิสก์ — สิ่งเดียวที่คงอยู่คือ snapshot ข้างต้น
 
 ## หลายคนแก้พร้อมกัน (realtime)
 
@@ -81,7 +121,7 @@ scripts/excalidraw-table.mjs  # CLI สร้างตารางเป็น�
   - ลำดับ (z-order) ใช้ของฝั่งที่วาดอยู่ ไม่สลับไปมาตามเพื่อน
 - **รูปภาพ/ไฟล์แนบ:** ไฟล์ binary ไม่ได้อยู่ใน `elements` แต่แยกอยู่ใน `files` ของ scene — ฝั่งรับจะ merge `files` ก่อน `elements` ทำให้รูปที่อีกคนวาง (paste) ขึ้นครบทั้งรูปและไฟล์ ไม่ใช่ภาพเปล่า
 - ระหว่างลาก/พิมพ์ข้อความ จะยังไม่รับ scene จากคนอื่นจนกว่าจะปล่อย (กันงานหลุดมือ)
-- การบันทึกยังทำงานเหมือนเดิม (debounce 0.9 วิ ตอนใช้ HTTP, 0.3 วิ ตอน push ผ่าน websocket; แท็บที่ถูกซ่อนจะบันทึกทันที ไม่รอ timer ที่ถูก throttle) แต่ตอนนี้ไม่มีป้ายสถานะบนหน้าจอ — ดูได้จากไฟล์ใน `gallery/scenes`
+- การบันทึกยังทำงานเหมือนเดิม (debounce 0.9 วิ ตอนใช้ HTTP, 0.3 วิ ตอน push ผ่าน websocket; แท็บที่ถูกซ่อนจะบันทึกทันที ไม่รอ timer ที่ถูก throttle) แต่ตอนนี้ไม่มีป้ายสถานะบนหน้าจอ — ดูได้จาก `gallery/scenes/<id>/scene.excalidraw`
 - ข้อจำกัด: ไม่มี remote cursor ให้เห็นตำแหน่งเมาส์ของกันและกัน และถ้าสองคนแก้ **element เดียวกัน** พร้อมกัน ตัวที่มาหลังสุดชนะ
 
 ทดสอบด้วยตัวเอง (ไม่ต้องเปิดเบราว์เซอร์):
@@ -89,6 +129,7 @@ scripts/excalidraw-table.mjs  # CLI สร้างตารางเป็น�
 ```bash
 BASE=http://127.0.0.1:5001 node .cache/collab.mjs   # เปิด Chrome headless 2 ตัว แทรกตาราง + วาดพร้อมกัน แล้วเทียบผล
 node scripts/test-board-meta.mjs                    # meta API: ชื่อ, validation, broadcast
+node scripts/test-board-storage.mjs                 # โฟลเดอร์ต่อกระดาน, history, legacy, prune, catalog
 node scripts/test-board-presence.mjs                # presence: sid เดียวกันแทนที่, heartbeat, reload ไม่เพิ่มแขก
 node scripts/e2e-ui.mjs                              # e2e ทั้งหน้า + realtime image/sticky (ค่าเริ่มต้น http://127.0.0.1:5792)
 node scripts/e2e-ui.mjs http://127.0.0.1:5001        # e2e กับตัวที่ deploy จริง
@@ -121,8 +162,9 @@ node scripts/e2e-ui.mjs http://127.0.0.1:5001        # e2e กับตัวท
 ถ้าต้องการตารางที่มีเนื้อหาตั้งแต่แรก (หัวคอลัมน์ + แถวข้อมูล) ใช้ CLI นี้สร้างเป็นไฟล์แทน:
 
 ```bash
+mkdir -p gallery/scenes/my-tables
 node scripts/excalidraw-table.mjs scripts/excalidraw-table.example.json \
-  -o gallery/scenes/my-tables.excalidraw --columns 3
+  -o gallery/scenes/my-tables/scene.excalidraw --columns 3
 node gallery/build.mjs
 ```
 
@@ -136,34 +178,42 @@ node gallery/build.mjs --force    # render ใหม่ทุกใบ
 node gallery/build.mjs --no-render # แค่สร้าง index.html (เร็ว)
 ```
 
-ตั้งชื่อ/คำอธิบายการ์ดได้ด้วย sidecar: `gallery/scenes/<id>.meta.json`
+`build.mjs` อ่านโครงสร้างโฟลเดอร์ (`scenes/<id>/scene.excalidraw` + `meta.json`) และ **ข้าม `history/` กับทุกไฟล์ที่ขึ้นต้นด้วยจุด**; กระดานรุ่นไฟล์แบนที่ยังไม่ถูกย้ายก็ยังถูกอ่านด้วย เพื่อไม่ให้การ์ดหายระหว่างเปลี่ยนผ่าน
+ตั้งชื่อ/คำอธิบายการ์ดได้ด้วย sidecar: `gallery/scenes/<id>/meta.json`
 
 ```json
 { "title": "Inventory board", "subtitle": "กระดานหลักของโมดูล inventory", "tags": ["inventory"] }
 ```
 
 กระดานที่เซฟผ่านเว็บจะโผล่ในหน้าแรกทันที (ดึงจาก `/api/boards`) แม้ยังไม่มีพรีวิว — พอสั่ง `node gallery/build.mjs` ก็จะมีรูปขึ้น
+ทดสอบ build กับข้อมูลชั่วคราวได้โดยไม่แตะของจริง: `SCENES_DIR=/tmp/scenes SITE_DIR=/tmp/site node gallery/build.mjs --no-render`
 
 ## เปลี่ยนชื่อกระดาน
 
 เปลี่ยนชื่อได้จาก **หน้า catalog ที่เดียว** (หน้าแก้ไขไม่มีช่องชื่อแล้ว): กดปุ่ม `แก้ชื่อ` บนการ์ด → พิมพ์ชื่อใน dialog → `บันทึกชื่อ`; ชื่อว่างจะขึ้นเตือนและไม่บันทึก (สูงสุด 120 ตัวอักษร)
 
-ชื่อถูกเก็บใน sidecar `gallery/scenes/<id>.meta.json` (คีย์ `title`) ไม่แตะไฟล์ scene — ล้างช่องให้ว่างแล้วบันทึก = กลับไปใช้ id เป็นชื่อ
+ชื่อถูกเก็บใน sidecar `gallery/scenes/<id>/meta.json` (คีย์ `title`) ไม่แตะไฟล์ scene — ล้างช่องให้ว่างแล้วบันทึก = กลับไปใช้ id เป็นชื่อ
 คนอื่นที่เปิดกระดานเดียวกันอยู่จะเห็นชื่อใหม่ทันทีผ่าน WebSocket (`{type:"meta"}`); หน้า catalog อัปเดตการ์ดจาก `/api/boards` ทันทีที่โหลดหน้า (ไม่ต้อง build ใหม่) — ภาพตัวอย่างยังรอ `node gallery/build.mjs` รอบถัดไป
 
 ## ลบกระดาน
 
 ลบได้จาก **หน้า catalog เท่านั้น** (ในหน้า board ไม่มีปุ่มลบ):
 
-- ปุ่ม `ลบ` ในการ์ดแต่ละใบ → dialog ยืนยัน → **กดปุ่ม `กดค้างเพื่อลบ` ค้างไว้ 1.1 วินาที** → ลบไฟล์ + sidecar `<id>.meta.json` + ประวัติใน `.history/` แล้วการ์ดหายและตัวนับอัปเดตทันที
+- ปุ่ม `ลบ` ในการ์ดแต่ละใบ → dialog ยืนยัน → **กดปุ่ม `กดค้างเพื่อลบ` ค้างไว้ 1.1 วินาที** → ลบทั้งโฟลเดอร์ `gallery/scenes/<id>/` (scene + `meta.json` + `history/`) แล้วการ์ดหายและตัวนับอัปเดตทันที
 
 dialog ยืนยันเป็น **hold-to-confirm**: ปุ่มจะค่อย ๆ เติมสีแดงตามระยะเวลาที่กดค้าง ปล่อยมือก่อนครบ = ยกเลิก (ไม่มีอะไรเกิดขึ้น) — กันการเผลอกดลบ
 คีย์บอร์ดใช้ได้เหมือนกัน: โฟกัสที่ปุ่มแล้วกด `Space`/`Enter` ค้างไว้, `Esc` = ยกเลิก, คลิกพื้นหลัง dialog = ยกเลิก
 
 ถ้ามีคนอื่นเปิดกระดานเดียวกันอยู่ จะเห็นข้อความ `กระดานนี้ถูกลบไปแล้ว` (เซิร์ฟเวอร์ส่ง `{type:"deleted"}` แล้วปิด socket)
-ลบแล้วกู้คืนไม่ได้ — ไม่มีถังขยะ ไฟล์จริงอยู่ที่ `gallery/scenes/<id>.excalidraw`; ก่อนลบทุกครั้งระบบเก็บสำเนาไว้ใน `gallery/scenes/.history/<id>/` (20 ชุดล่าสุด) แต่การกดลบจะลบประวัตินั้นทิ้งด้วย
+ลบแล้วกู้คืนไม่ได้ — ไม่มีถังขยะ ไฟล์จริงอยู่ที่ `gallery/scenes/<id>/scene.excalidraw`; ก่อนลบทุกครั้งระบบเก็บสำเนาไว้ใน `gallery/scenes/<id>/history/` (100 ชุดล่าสุด) แต่การกดลบจะลบประวัตินั้นทิ้งไปพร้อมโฟลเดอร์
 
-สำเนาสำรอง: `gallery/site/scenes/<id>.excalidraw` คือไฟล์ที่ catalog ใช้ให้ดาวน์โหลด (คัดลอกไว้ตอน `node gallery/build.mjs` ล่าสุด) ถ้าเผลอลบกระดานไปแล้ว ยังกู้ได้ด้วย `cp gallery/site/scenes/<id>.excalidraw gallery/scenes/`
+สำเนาสำรอง: `gallery/site/scenes/<id>.excalidraw` คือไฟล์ที่ catalog ใช้ให้ดาวน์โหลด (คัดลอกไว้ตอน `node gallery/build.mjs` ล่าสุด) ถ้าเผลอลบกระดานไปแล้ว ยังกู้ได้ด้วย
+
+```bash
+mkdir -p gallery/scenes/<id>
+cp gallery/site/scenes/<id>.excalidraw gallery/scenes/<id>/scene.excalidraw
+node gallery/build.mjs
+```
 
 ## API
 
@@ -174,21 +224,22 @@ dialog ยืนยันเป็น **hold-to-confirm**: ปุ่มจะค
 | POST | `/api/boards` | สร้างใหม่ body `{"name":"..."}` คืน `{id, scene}` |
 | GET | `/api/boards/:id` | scene เต็ม |
 | PUT | `/api/boards/:id` | เขียนทับ (validate `type === "excalidraw"`, `elements` เป็น array) |
+| GET | `/api/boards/:id/history` | snapshot ที่เก็บอยู่ `{id, keep, history:[{name,bytes,savedAt}]}` — ใหม่สุดก่อน, ไม่มี path ของเครื่อง |
 | GET | `/api/boards/:id/meta` | ชื่อ/คำอธิบาย `{id,title,subtitle,tags}` — `title` ว่างแปลว่าใช้ `id` |
 | PATCH | `/api/boards/:id/meta` | เปลี่ยนชื่อ body `{"title":"..."}` — trim, ≤120 ตัวอักษร, `""` = ล้างชื่อ; broadcast `{type:"meta", id, title, subtitle, tags}` |
-| DELETE | `/api/boards/:id` | ลบไฟล์ + `<id>.meta.json` + `.history/<id>/` แล้วแจ้งทุก socket ที่เปิดกระดานนั้น (`{type:"deleted"}`) |
+| DELETE | `/api/boards/:id` | ลบทั้งโฟลเดอร์ `<id>/` (scene + `meta.json` + `history/`) แล้วแจ้งทุก socket ที่เปิดกระดานนั้น (`{type:"deleted"}`) |
 
-`id` ต้องตรง `/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/` และ path ทุกเส้นถูกกัน traversal ด้วย `within(root, rel)`
+`id` ต้องตรง `/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/`; static (`/gallery/`, shell) กัน traversal ด้วย `within(root, rel)` และ `/scenes/…` รับเฉพาะ id ที่ผ่าน `ID_RE` แล้วเสิร์ฟไฟล์ของกระดานนั้นเท่านั้น (`/scenes/<id>/history/…` จึงโหลดไม่ได้)
 
 ## Environment
 
 | var | ค่าเริ่มต้นในอิมเมจ | ความหมาย |
 |---|---|---|
 | `PORT` | `5002` | พอร์ตในคอนเทนเนอร์ (แมปออกเป็น 5001) |
-| `DATA_DIR` | `/data` | ที่เก็บ `.excalidraw` (mount จาก `gallery/scenes`) |
+| `DATA_DIR` | `/data` | โฟลเดอร์กระดาน `<id>/scene.excalidraw` (mount จาก `gallery/scenes`) |
 | `GALLERY_DIR` | `/gallery` | catalog ที่ generate แล้ว |
 | `APP_DIR` | `/srv/dist` | ไฟล์ SPA ที่ build แล้ว |
-| `HISTORY_KEEP` | `20` | จำนวน snapshot ต่อกระดาน |
+| `HISTORY_KEEP` | `100` | จำนวน snapshot ต่อกระดาน (เกินแล้วลบเก่าสุดก่อน; `0` = ไม่เก็บ) |
 | `MAX_BODY` | `32MB` | เพดานขนาด payload ตอน PUT และข้อความ WebSocket |
 | `HEARTBEAT_MS` | `30000` | ช่วง ping ตรวจ socket ที่ตายแล้ว (ต่ำสุด 100 — ใช้เร่งตอนเทสต์) |
 
@@ -209,8 +260,8 @@ node server.mjs  # เสิร์ฟ dist แบบ production ที่ :5002
 | `bind: address already in use` ตอนใช้พอร์ต 5000 | macOS AirPlay Receiver จอง 5000 ไว้ — ปิดที่ System Settings → General → AirDrop & Handoff → AirPlay Receiver หรือใช้ 5001 ตามค่าเริ่มต้น |
 | `docker build` ฟ้อง `failed to update builder last activity time` | buildx เขียน `~/.docker` ไม่ได้ (sandbox) → `DOCKER_BUILDKIT=0 docker build ...` |
 | คอนเทนเนอร์ restart วน `EACCES /srv/server.mjs` | ไฟล์ถูก COPY มาด้วยโหมด `600` → Dockerfile มี `chmod -R a+rX /srv` แล้ว; ถ้าแก้เองให้ `chmod 644 app/server.mjs` |
-| เปิดกระดานแล้วว่าง | id ใน URL ไม่ตรงชื่อไฟล์ — ดูรายการจริงที่ `curl /api/boards` |
-| แก้ในเบราว์เซอร์แล้วหาย | หน้าแก้ไขไม่มีป้ายสถานะแล้ว — รอ ~1 วินาทีแล้ว `ls -lt gallery/scenes` ว่าไฟล์ถูกเขียน; ถ้าไม่เขียนดู `docker compose logs` (PUT `/api/boards/<id>` ต้องได้ 200) |
+| เปิดกระดานแล้วว่าง | id ใน URL ไม่ตรงชื่อโฟลเดอร์ — ดูรายการจริงที่ `curl /api/boards` |
+| แก้ในเบราว์เซอร์แล้วหาย | หน้าแก้ไขไม่มีป้ายสถานะแล้ว — รอ ~1 วินาทีแล้ว `ls -lt gallery/scenes/*/scene.excalidraw` ว่าไฟล์ถูกเขียน; ถ้าไม่เขียนดู `docker compose logs` (PUT `/api/boards/<id>` ต้องได้ 200) |
 | เปิดสองแท็บแล้วแท็บหนึ่งไม่เห็นของอีกแท็บ | ดู log ว่ามี `ws` error ไหม (`docker compose logs -f`) — ถ้า proxy ปิด upgrade socket จะต่อไม่ติด |
 | เปิดสองแท็บแล้วไม่เห็นกัน | ต้องเป็นกระดาน id เดียวกัน และ avatar stack แถวขวาบนต้องมี 2 ตัว (`2 คน`) — ถ้าไม่ขึ้น แปลว่า websocket ต่อไม่ติด (proxy ที่ปิด upgrade) |
 

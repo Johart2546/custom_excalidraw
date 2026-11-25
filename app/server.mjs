@@ -4,22 +4,31 @@
  *
  * Zero dependencies (node:http + node:fs). Serves three things from one origin:
  *   /gallery/…   the generated board catalogue (gallery/site)
- *   /scenes/…    raw .excalidraw files (download / #url= deep link)
+ *   /scenes/…    raw scene files (download / #url= deep link)
  *   /, /b/:id    the editor SPA (app/dist), which talks to /api/boards
  *
  * Boards are plain files on the host disk — that is the whole point: nothing
- * lives in the browser anymore.
+ * lives in the browser anymore. Every board is one folder:
  *
- *   DATA_DIR     where boards are stored   (default ./gallery/scenes)
+ *   DATA_DIR/<id>/scene.excalidraw           the scene the editor reads/writes
+ *   DATA_DIR/<id>/meta.json                  optional title/subtitle/tags
+ *   DATA_DIR/<id>/history/<stamp>.excalidraw snapshots, pruned oldest first
+ *
+ *   DATA_DIR     board folders             (default ./gallery/scenes)
  *   APP_DIR      built SPA                 (default ./app/dist)
  *   GALLERY_DIR  built catalogue           (default ./gallery/site)
  *   PORT         listen port               (default 5002)
- *   HISTORY_KEEP how many autosave copies  (default 20)
+ *   HISTORY_KEEP snapshots kept per board  (default 100)
+ *
+ * The old flat layout (`<id>.excalidraw`, `<id>.meta.json`,
+ * `.history/<id>/`) is still listed and opened: the first write moves the
+ * board into its folder (see migrateLegacy below), and scripts/migrate-scenes.mjs
+ * does the same for every board in one go.
  */
 
 import { createServer } from "node:http";
 import { createReadStream } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
 
@@ -27,7 +36,11 @@ const PORT = Number(process.env.PORT || 5002);
 const DATA_DIR = resolve(process.env.DATA_DIR || "./gallery/scenes");
 const APP_DIR = resolve(process.env.APP_DIR || "./app/dist");
 const GALLERY_DIR = resolve(process.env.GALLERY_DIR || "./gallery/site");
-const HISTORY_KEEP = Number(process.env.HISTORY_KEEP || 20);
+/* 100 snapshots is the shipped default; an operator can lower or raise it. */
+const HISTORY_KEEP = (() => {
+  const raw = Number(process.env.HISTORY_KEEP);
+  return Number.isInteger(raw) && raw >= 0 ? raw : 100;
+})();
 const MAX_BODY = 32 * 1024 * 1024;
 
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/;
@@ -125,9 +138,162 @@ a{display:inline-block;background:#4a5bd6;color:#fff;text-decoration:none;paddin
 <main><h1>ไม่พบหน้านี้</h1><p><code>${safe}</code> ไม่มีอยู่ในเซิร์ฟเวอร์นี้</p><a href="/">กลับไปหน้าแกลเลอรี</a></main></html>`;
 }
 
-const scenePath = (id) => join(DATA_DIR, `${id}.excalidraw`);
-const metaPath = (id) => join(DATA_DIR, `${id}.meta.json`);
-const historyDir = (id) => join(DATA_DIR, ".history", id);
+/* ----------------------------------------------------------------- storage */
+
+/*
+ * Every board is one folder and every path below is derived here — no route or
+ * handler joins DATA_DIR by hand, so the layout can change in one place.
+ *
+ *   <DATA_DIR>/<id>/scene.excalidraw
+ *   <DATA_DIR>/<id>/meta.json
+ *   <DATA_DIR>/<id>/history/<ISO stamp>.excalidraw
+ *
+ * Legacy (pre-folder) boards keep working: they are read from the flat paths
+ * until their first write, which calls migrateLegacy() and moves the scene,
+ * the sidecar and the old `.history/<id>/` snapshots into the folder.
+ */
+const boardDir = (id) => join(DATA_DIR, id);
+const scenePath = (id) => join(boardDir(id), "scene.excalidraw");
+const metaPath = (id) => join(boardDir(id), "meta.json");
+const historyDir = (id) => join(boardDir(id), "history");
+
+const legacyScenePath = (id) => join(DATA_DIR, `${id}.excalidraw`);
+const legacyMetaPath = (id) => join(DATA_DIR, `${id}.meta.json`);
+const legacyHistoryDir = (id) => join(DATA_DIR, ".history", id);
+
+async function dirExists(path) {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** The scene file this board currently lives in (folder first, then legacy). */
+async function sceneFile(id) {
+  const current = scenePath(id);
+  if (await fileExists(current)) return current;
+  const legacy = legacyScenePath(id);
+  if (await fileExists(legacy)) return legacy;
+  return null;
+}
+
+const boardExists = async (id) => (await sceneFile(id)) !== null;
+
+/** Move one flat file into place; rename keeps mtime, copy+unlink is the fallback. */
+async function moveInto(from, to) {
+  try {
+    await rename(from, to);
+  } catch {
+    await copyFile(from, to);
+    await unlink(from).catch(() => {});
+  }
+}
+
+/** Move `DATA_DIR/.history/<id>/` snapshots into `<id>/history/`. */
+async function migrateLegacyHistory(id) {
+  const from = legacyHistoryDir(id);
+  let names;
+  try {
+    names = await readdir(from);
+  } catch {
+    return;
+  }
+  const snapshots = names.filter((name) => !name.startsWith(".") && SCENE_RE.test(name));
+  if (!snapshots.length) {
+    await rmdir(from).catch(() => {}); // only removes an empty directory
+    return;
+  }
+  await mkdir(historyDir(id), { recursive: true });
+  let failed = 0;
+  for (const name of snapshots) {
+    const target = join(historyDir(id), name);
+    if (await fileExists(target)) continue; // the folder copy is the live one
+    await moveInto(join(from, name), target).catch(() => {
+      failed += 1;
+    });
+  }
+  // anything that could not move stays where it is (ENOTEMPTY), so history is
+  // never silently dropped
+  if (!failed) await rmdir(from).catch(() => {});
+  await rmdir(join(DATA_DIR, ".history")).catch(() => {});
+}
+
+/**
+ * Move a legacy flat board into its folder, in place, before the first write.
+ * Reads never call this: listing and opening a never-written board stays
+ * side-effect free. Returns true when something was moved.
+ */
+async function migrateLegacy(id) {
+  const hadScene = await fileExists(legacyScenePath(id));
+  const hadMeta = await fileExists(legacyMetaPath(id));
+  if (!hadScene && !hadMeta) {
+    await migrateLegacyHistory(id);
+    return false;
+  }
+  if (!hadScene) {
+    // a stray sidecar without a scene belongs to no board: do not invent one
+    return false;
+  }
+  await mkdir(boardDir(id), { recursive: true });
+  if (await fileExists(scenePath(id))) {
+    // a half-finished migration left both: the folder copy is authoritative
+    await unlink(legacyScenePath(id)).catch(() => {});
+  } else {
+    await moveInto(legacyScenePath(id), scenePath(id));
+  }
+  if (hadMeta) {
+    if (await fileExists(metaPath(id))) await unlink(legacyMetaPath(id)).catch(() => {});
+    else await moveInto(legacyMetaPath(id), metaPath(id));
+  }
+  await migrateLegacyHistory(id);
+  return true;
+}
+
+/** Snapshot files of a board, newest first, folder and legacy dirs merged. */
+async function historyFiles(id) {
+  const byName = new Map();
+  for (const [dir, priority] of [
+    [historyDir(id), 1],
+    [legacyHistoryDir(id), 0],
+  ]) {
+    let names;
+    try {
+      names = await readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (name.startsWith(".") || !SCENE_RE.test(name)) continue;
+      const path = join(dir, name);
+      const info = await stat(path).catch(() => null);
+      if (!info?.isFile()) continue;
+      const seen = byName.get(name);
+      if (seen && seen.priority > priority) continue;
+      byName.set(name, { name, path, priority, bytes: info.size, mtimeMs: info.mtimeMs });
+    }
+  }
+  // newest first; ISO-ish stamp names break ties so the order is stable
+  return [...byName.values()].sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name));
+}
+
+/** Keep only the newest HISTORY_KEEP snapshots; oldest go first. */
+async function pruneHistory(id) {
+  const files = await historyFiles(id);
+  for (const old of files.slice(HISTORY_KEEP)) {
+    await unlink(old.path).catch(() => {});
+  }
+}
+
+/** `<ISO stamp>.excalidraw`, with a counter when two saves land in one ms. */
+async function snapshotName(id) {
+  const base = new Date().toISOString().replace(/[:.]/g, "-");
+  let name = `${base}.excalidraw`;
+  for (let i = 1; await fileExists(join(historyDir(id), name)); i += 1) {
+    name = `${base}-${i}.excalidraw`;
+  }
+  return name;
+}
 
 function emptyScene() {
   return {
@@ -154,11 +320,7 @@ async function uniqueId(wanted) {
   const base = slugify(wanted);
   for (let i = 0; i < 500; i += 1) {
     const id = i === 0 ? base : `${base}-${i + 1}`;
-    try {
-      await stat(scenePath(id));
-    } catch {
-      return id;
-    }
+    if (!(await boardExists(id))) return id;
   }
   return `${base}-${Date.now().toString(36)}`;
 }
@@ -166,15 +328,13 @@ async function uniqueId(wanted) {
 /** Keep the previous copy of a board before overwriting it. */
 async function snapshot(id) {
   try {
-    const info = await stat(scenePath(id));
+    const source = await sceneFile(id);
+    if (!source) return;
+    const info = await stat(source);
     if (info.size === 0) return;
     await mkdir(historyDir(id), { recursive: true });
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    await copyFile(scenePath(id), join(historyDir(id), `${stamp}.excalidraw`));
-    const kept = (await readdir(historyDir(id))).filter((f) => SCENE_RE.test(f)).sort();
-    for (const old of kept.slice(0, Math.max(0, kept.length - HISTORY_KEEP))) {
-      await unlink(join(historyDir(id), old)).catch(() => {});
-    }
+    await copyFile(source, join(historyDir(id), await snapshotName(id)));
+    await pruneHistory(id);
   } catch {
     /* first save: nothing to snapshot */
   }
@@ -189,7 +349,9 @@ async function writeAtomic(path, contents) {
 /** Write a board: keep the old copy, then atomically replace the file. */
 async function saveScene(id, scene) {
   await mkdir(DATA_DIR, { recursive: true });
+  await migrateLegacy(id); // a legacy flat board moves into its folder on the first write
   await snapshot(id);
+  await mkdir(boardDir(id), { recursive: true });
   await writeAtomic(scenePath(id), `${JSON.stringify(scene, null, 2)}\n`);
 }
 
@@ -208,20 +370,25 @@ function withBoardLock(id, fn) {
 /* --------------------------------------------------------------------- meta */
 
 /*
- * `gallery/scenes/<id>.meta.json` is an optional sidecar: { title, subtitle, tags }.
+ * `gallery/scenes/<id>/meta.json` is an optional sidecar: { title, subtitle, tags }.
  * It holds the board's display name while the scene file stays a pure Excalidraw
  * document. Missing, empty or broken sidecars all read as "no metadata".
+ * A legacy `<id>.meta.json` next to the flat scene is read until the board is
+ * migrated into its folder.
  */
 
 const META_TITLE_MAX = 120;
 
 async function readMeta(id) {
-  try {
-    const parsed = JSON.parse(await readFile(metaPath(id), "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
+  for (const file of [metaPath(id), legacyMetaPath(id)]) {
+    try {
+      const parsed = JSON.parse(await readFile(file, "utf8"));
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    } catch {
+      /* try the next location */
+    }
   }
+  return {};
 }
 
 /** Public shape: the title always exists (falls back to the board id). */
@@ -235,12 +402,12 @@ function metaView(id, meta) {
 }
 
 async function apiMetaGet(res, id) {
-  if (!(await fileExists(scenePath(id)))) return fail(res, 404, `board not found: ${id}`);
+  if (!(await boardExists(id))) return fail(res, 404, `board not found: ${id}`);
   json(res, 200, metaView(id, await readMeta(id)));
 }
 
 async function apiMetaPatch(res, req, id) {
-  if (!(await fileExists(scenePath(id)))) return fail(res, 404, `board not found: ${id}`);
+  if (!(await boardExists(id))) return fail(res, 404, `board not found: ${id}`);
 
   let body;
   try {
@@ -260,6 +427,7 @@ async function apiMetaPatch(res, req, id) {
 
   // read-modify-write under the board lock so a rename cannot race a scene save
   const meta = await withBoardLock(id, async () => {
+    await migrateLegacy(id); // a rename is a write: the board joins its folder too
     const current = await readMeta(id);
     const next = {};
     if (title) next.title = title;
@@ -267,11 +435,12 @@ async function apiMetaPatch(res, req, id) {
     if (Array.isArray(current.tags) && current.tags.length) next.tags = current.tags;
 
     if (Object.keys(next).length) {
-      await mkdir(DATA_DIR, { recursive: true });
+      await mkdir(boardDir(id), { recursive: true });
       await writeAtomic(metaPath(id), `${JSON.stringify(next, null, 2)}\n`);
     } else {
       // nothing custom left: delete the sidecar instead of leaving `{}` behind
       await unlink(metaPath(id)).catch(() => {});
+      await unlink(legacyMetaPath(id)).catch(() => {});
     }
     return next;
   });
@@ -284,37 +453,53 @@ async function apiMetaPatch(res, req, id) {
 
 /* --------------------------------------------------------------------- api */
 
-async function apiList(res) {
+/** Every board in DATA_DIR — folder layout first, never-migrated flat boards after. */
+async function listBoards() {
   let names;
   try {
     names = await readdir(DATA_DIR);
   } catch {
-    return json(res, 200, { boards: [] });
+    return [];
   }
-  const boards = [];
+  const found = new Map(); // id -> absolute scene file
   for (const name of names) {
-    if (!SCENE_RE.test(name) || name.startsWith(".")) continue;
+    if (name.startsWith(".") || !ID_RE.test(name)) continue;
+    const dir = join(DATA_DIR, name);
+    if (!(await dirExists(dir))) continue;
+    const scene = join(dir, "scene.excalidraw");
+    if (await fileExists(scene)) found.set(name, scene);
+  }
+  for (const name of names) {
+    if (name.startsWith(".") || !SCENE_RE.test(name)) continue;
     const id = name.replace(SCENE_RE, "");
-    const path = join(DATA_DIR, name);
+    if (found.has(id) || !ID_RE.test(id)) continue;
+    const file = join(DATA_DIR, name);
+    if (await fileExists(file)) found.set(id, file);
+  }
+  return [...found.entries()];
+}
+
+async function apiList(res) {
+  const boards = [];
+  for (const [id, path] of await listBoards()) {
     try {
       const info = await stat(path);
-      let title = id;
-      let subtitle = "";
+      const meta = await readMeta(id);
       let elements = null;
-      try {
-        const meta = JSON.parse(await readFile(metaPath(id), "utf8"));
-        if (meta?.title) title = String(meta.title);
-        if (meta?.subtitle) subtitle = String(meta.subtitle);
-      } catch {
-        /* no meta sidecar */
-      }
       try {
         const scene = JSON.parse(await readFile(path, "utf8"));
         elements = Array.isArray(scene.elements) ? scene.elements.filter((e) => !e.isDeleted).length : null;
       } catch {
         /* unreadable scene: still list it */
       }
-      boards.push({ id, title, subtitle, bytes: info.size, updated: info.mtimeMs, elements });
+      boards.push({
+        id,
+        title: meta?.title ? String(meta.title) : id,
+        subtitle: meta?.subtitle ? String(meta.subtitle) : "",
+        bytes: info.size,
+        updated: info.mtimeMs,
+        elements,
+      });
     } catch {
       /* racing delete */
     }
@@ -333,18 +518,19 @@ async function apiCreate(res, req) {
   }
   const id = await uniqueId(wanted || `board-${new Date().toISOString().slice(0, 16).replace(/[:T-]/g, "")}`);
   const scene = emptyScene();
-  await mkdir(DATA_DIR, { recursive: true });
+  await mkdir(boardDir(id), { recursive: true });
   await writeAtomic(scenePath(id), `${JSON.stringify(scene, null, 2)}\n`);
   log("created", id);
   json(res, 201, { id, scene });
 }
 
 async function apiGet(res, id) {
+  const file = await sceneFile(id);
+  if (!file) return fail(res, 404, `board not found: ${id}`);
   try {
-    const raw = await readFile(scenePath(id), "utf8");
+    const raw = await readFile(file, "utf8");
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
     res.end(raw);
-    return;
   } catch {
     return fail(res, 404, `board not found: ${id}`);
   }
@@ -366,15 +552,15 @@ async function apiPut(res, req, id) {
 }
 
 async function apiDelete(res, id) {
-  try {
-    await unlink(scenePath(id));
-  } catch {
-    return fail(res, 404, `board not found: ${id}`);
-  }
-  // the .meta.json sidecar belongs to the board: leaving it behind would show
-  // a stale title if a new board later reuses the same id
-  await unlink(metaPath(id)).catch(() => {});
-  await rm(historyDir(id), { recursive: true, force: true }).catch(() => {});
+  if (!(await boardExists(id))) return fail(res, 404, `board not found: ${id}`);
+  // the folder owns the scene, its sidecar and its snapshots: deleting the
+  // board means deleting the folder, not just the file it happens to live in
+  await rm(boardDir(id), { recursive: true, force: true });
+  // legacy leftovers of a board that was never migrated
+  await unlink(legacyScenePath(id)).catch(() => {});
+  await unlink(legacyMetaPath(id)).catch(() => {});
+  await rm(legacyHistoryDir(id), { recursive: true, force: true }).catch(() => {});
+  await rmdir(join(DATA_DIR, ".history")).catch(() => {}); // only when empty
   const peers = rooms.get(id);
   if (peers) {
     for (const socket of peers) {
@@ -389,6 +575,24 @@ async function apiDelete(res, id) {
   }
   log("deleted", id);
   json(res, 200, { id, deleted: true });
+}
+
+/* ----------------------------------------------------------------- history */
+
+/*
+ * GET /api/boards/:id/history — the snapshots this server actually keeps on
+ * disk, newest first. File names only: a client has no business learning where
+ * DATA_DIR is. Excalidraw's own undo stack lives in the tab's memory and is
+ * never written anywhere; these snapshots are the only persisted history.
+ */
+async function apiHistory(res, id) {
+  if (!(await boardExists(id))) return fail(res, 404, `board not found: ${id}`);
+  const history = (await historyFiles(id)).map(({ name, bytes, mtimeMs }) => ({
+    name,
+    bytes,
+    savedAt: new Date(mtimeMs).toISOString(),
+  }));
+  json(res, 200, { id, keep: HISTORY_KEEP, history });
 }
 
 /* -------------------------------------------------------------------- live */
@@ -591,6 +795,14 @@ const server = createServer(async (req, res) => {
       return fail(res, 405, "method not allowed");
     }
 
+    const historyMatch = path.match(/^\/api\/boards\/([^/]+)\/history$/);
+    if (historyMatch) {
+      const id = historyMatch[1];
+      if (!ID_RE.test(id)) return fail(res, 400, "invalid board id");
+      if (method === "GET") return await apiHistory(res, id);
+      return fail(res, 405, "method not allowed");
+    }
+
     const boardMatch = path.match(/^\/api\/boards\/([^/]+)$/);
     if (boardMatch) {
       const id = boardMatch[1];
@@ -604,8 +816,19 @@ const server = createServer(async (req, res) => {
     if (method !== "GET" && method !== "HEAD") return fail(res, 405, "method not allowed");
 
     if (path.startsWith("/scenes/")) {
-      const file = within(DATA_DIR, path.slice("/scenes/".length));
-      if (file && (await serveFile(res, file))) return;
+      const raw = path.slice("/scenes/".length);
+      // The download URL stayed `/scenes/<id>.excalidraw` while the file on
+      // disk moved into `<id>/`; the on-disk shape is not a public URL (it
+      // would expose history/), so it just points at the canonical one.
+      const onDisk = raw.match(/^([^/]+)\/scene\.excalidraw$/i);
+      if (onDisk && ID_RE.test(onDisk[1])) {
+        return send(res, 301, "", { Location: `/scenes/${encodeURIComponent(onDisk[1])}.excalidraw` });
+      }
+      const direct = raw.match(/^([^/]+)\.excalidraw$/i);
+      if (direct && ID_RE.test(direct[1])) {
+        const file = await sceneFile(direct[1]);
+        if (file && (await serveFile(res, file))) return;
+      }
       return fail(res, 404, "scene not found");
     }
 
@@ -638,7 +861,7 @@ const server = createServer(async (req, res) => {
     const boardRoute = path.match(/^\/b\/([^/]+)\/?$/);
     if (boardRoute) {
       const id = decodeURIComponent(boardRoute[1]);
-      const known = ID_RE.test(id) && (await fileExists(scenePath(id)));
+      const known = ID_RE.test(id) && (await boardExists(id));
       // the shell always renders; 404 tells the browser the board is missing
       if (await serveFile(res, shell, { status: known ? 200 : 404 })) return;
     }
