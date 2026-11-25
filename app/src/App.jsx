@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import TableBuilder from "./TableBuilder.jsx";
+import DiagramTool from "./tools/DiagramTool.jsx";
 import { attachCellText, buildGrid } from "./table.js";
 
 const SAVE_DELAY = 900; // http fallback (no websocket)
@@ -1128,6 +1129,7 @@ export default function App() {
           </button>,
           tableSlot,
         )}
+      <DiagramTool apiRef={apiRef} host={tableSlot} />
       <a className="back-fab" href="/" aria-label="กลับไปหน้ารวมกระดาน" title="กลับไปหน้ารวมกระดาน">
         <IconBack />
       </a>
