@@ -31,6 +31,7 @@
 import { createServer } from "node:http";
 import { createReadStream, existsSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { copyFile, mkdir, readFile, readdir, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
@@ -374,9 +375,10 @@ function withBoardLock(id, fn) {
 /* --------------------------------------------------------------------- meta */
 
 /*
- * `gallery/scenes/<id>/meta.json` is an optional sidecar: { title, subtitle, tags }.
- * It holds the board's display name while the scene file stays a pure Excalidraw
- * document. Missing, empty or broken sidecars all read as "no metadata".
+ * `gallery/scenes/<id>/meta.json` is an optional sidecar:
+ * { title, subtitle, tags, groupId }. It holds the board's display name and the
+ * group it is filed under while the scene file stays a pure Excalidraw document.
+ * Missing, empty or broken sidecars all read as "no metadata".
  * A legacy `<id>.meta.json` next to the flat scene is read until the board is
  * migrated into its folder.
  */
@@ -422,38 +424,311 @@ async function apiMetaPatch(res, req, id) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return fail(res, 400, "expected a JSON object");
   }
-  if (typeof body.title !== "string") return fail(res, 400, 'expected "title" to be a string');
 
-  const title = body.title.trim();
-  if ([...title].length > META_TITLE_MAX) {
-    return fail(res, 400, `title is longer than ${META_TITLE_MAX} characters`);
+  // one endpoint, two independent fields: a rename does not touch the group and
+  // filing a board does not rename it (unknown keys stay ignored, as before)
+  const hasTitle = "title" in body;
+  const hasGroup = "groupId" in body;
+  if (!hasTitle && !hasGroup) return fail(res, 400, 'expected "title" or "groupId" to be set');
+
+  let title = "";
+  if (hasTitle) {
+    if (typeof body.title !== "string") return fail(res, 400, 'expected "title" to be a string');
+    title = body.title.trim();
+    if ([...title].length > META_TITLE_MAX) {
+      return fail(res, 400, `title is longer than ${META_TITLE_MAX} characters`);
+    }
   }
 
-  // read-modify-write under the board lock so a rename cannot race a scene save
-  const meta = await withBoardLock(id, async () => {
-    await migrateLegacy(id); // a rename is a write: the board joins its folder too
-    const current = await readMeta(id);
-    const next = {};
-    if (title) next.title = title;
-    if (typeof current.subtitle === "string" && current.subtitle) next.subtitle = current.subtitle;
-    if (Array.isArray(current.tags) && current.tags.length) next.tags = current.tags;
-
-    if (Object.keys(next).length) {
-      await mkdir(boardDir(id), { recursive: true });
-      await writeAtomic(metaPath(id), `${JSON.stringify(next, null, 2)}\n`);
+  // groupId: a group id files the board, ""/null ungroup it, omitted keeps it
+  let groupId; // undefined = untouched, null = ungrouped, string = that group
+  if (hasGroup) {
+    if (body.groupId === null) {
+      groupId = null;
+    } else if (typeof body.groupId === "string") {
+      const wanted = body.groupId.trim();
+      if (!wanted) groupId = null;
+      else if (!GROUP_ID_RE.test(wanted)) return fail(res, 400, "invalid group id");
+      else groupId = wanted;
     } else {
-      // nothing custom left: delete the sidecar instead of leaving `{}` behind
-      await unlink(metaPath(id)).catch(() => {});
-      await unlink(legacyMetaPath(id)).catch(() => {});
+      return fail(res, 400, 'expected "groupId" to be a string or null');
     }
-    return next;
-  });
+  }
+
+  // read-modify-write under the board lock so a rename cannot race a scene save;
+  // filing a board additionally takes the group lock so the group cannot be
+  // deleted between the existence check and the sidecar write
+  const apply = () =>
+    withBoardLock(id, async () => {
+      if (groupId) {
+        const { groups } = await readGroupStore();
+        if (!groups.some((group) => group.id === groupId)) return null;
+      }
+      await migrateLegacy(id); // a rename is a write: the board joins its folder too
+      const current = await readMeta(id);
+      const next = {};
+      const nextTitle = hasTitle ? title : typeof current.title === "string" ? current.title : "";
+      if (nextTitle) next.title = nextTitle;
+      if (typeof current.subtitle === "string" && current.subtitle) next.subtitle = current.subtitle;
+      if (Array.isArray(current.tags) && current.tags.length) next.tags = current.tags;
+      // an unrelated patch keeps the board where it is, exactly like the title;
+      // an explicit clear is stored as `null` (absent key also means ungrouped)
+      const keptGroup = typeof current.groupId === "string" && current.groupId ? current.groupId : null;
+      if (hasGroup) next.groupId = groupId;
+      else if (keptGroup) next.groupId = keptGroup;
+
+      // nothing custom left: the sidecar goes away instead of holding `{}`
+      const empty = !next.title && !next.subtitle && !next.tags && !next.groupId;
+      if (!empty) {
+        await mkdir(boardDir(id), { recursive: true });
+        await writeAtomic(metaPath(id), `${JSON.stringify(next, null, 2)}\n`);
+      } else {
+        await unlink(metaPath(id)).catch(() => {});
+        await unlink(legacyMetaPath(id)).catch(() => {});
+      }
+      return next;
+    });
+
+  const meta = hasGroup && groupId ? await withGroupsLock(apply) : await apply();
+  if (!meta) return fail(res, 404, `group not found: ${groupId}`);
 
   const view = metaView(id, meta);
   broadcast(id, { type: "meta", ...view });
   log("meta", id, view.title);
   scheduleGalleryRebuild();
   json(res, 200, view);
+}
+
+/* ------------------------------------------------------------------- groups */
+
+/*
+ * `DATA_DIR/.groups.json` is the one file behind the board categories
+ * ("หมวดหมู่"): a plain JSON document, hand-editable like the board folders.
+ *
+ *   { "version": 1, "groups": [ { id, name, color, createdAt, updatedAt } ] }
+ *
+ * The file is optional — no file (or a broken one) simply means zero groups and
+ * is never created by a read. Boards point at a group through their own
+ * meta.json (`groupId`), so membership lives with the board and this file only
+ * holds the taxonomy. Deleting a group rewrites those sidecars to `null`.
+ */
+const GROUPS_FILE = join(DATA_DIR, ".groups.json");
+const GROUPS_VERSION = 1;
+const GROUP_COLORS = ["violet", "blue", "teal", "amber", "rose", "slate"];
+const GROUP_NAME_MAX = 40;
+const GROUP_ID_RE = /^grp_[0-9a-f]{8}$/;
+
+/* Every group write is a read-modify-write of the same file, so they share one
+ * queue: the per-board lock under a key no board id can ever equal (board ids
+ * must start with an alphanumeric character, ID_RE). */
+const GROUPS_LOCK = "::groups";
+const withGroupsLock = (fn) => withBoardLock(GROUPS_LOCK, fn);
+
+/** One stored group, normalised; null when the record is unusable. */
+function groupRecord(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (!GROUP_ID_RE.test(id) || !name) return null;
+  const now = new Date().toISOString();
+  return {
+    id,
+    name,
+    color: GROUP_COLORS.includes(raw.color) ? raw.color : "violet",
+    createdAt: typeof raw.createdAt === "string" && raw.createdAt ? raw.createdAt : now,
+    updatedAt: typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : now,
+  };
+}
+
+/** The group store; a missing or unreadable file reads as zero groups. */
+async function readGroupStore() {
+  let raw;
+  try {
+    raw = await readFile(GROUPS_FILE, "utf8");
+  } catch {
+    return { version: GROUPS_VERSION, groups: [] }; // no file yet: nothing to list
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    log("groups file is not valid JSON, treating it as empty:", error?.message);
+    return { version: GROUPS_VERSION, groups: [] };
+  }
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.groups)) {
+    log("groups file has no groups array, treating it as empty");
+    return { version: GROUPS_VERSION, groups: [] };
+  }
+  const seen = new Set();
+  const groups = [];
+  for (const entry of parsed.groups) {
+    const record = groupRecord(entry);
+    if (!record || seen.has(record.id)) continue;
+    seen.add(record.id);
+    groups.push(record);
+  }
+  return { version: GROUPS_VERSION, groups };
+}
+
+async function writeGroupStore(groups) {
+  await mkdir(DATA_DIR, { recursive: true });
+  await writeAtomic(GROUPS_FILE, `${JSON.stringify({ version: GROUPS_VERSION, groups }, null, 2)}\n`);
+}
+
+const sameGroupName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** How many boards sit in each group — one disk scan for the whole list. */
+async function groupCounts() {
+  const counts = new Map();
+  for (const [id] of await listBoards()) {
+    const meta = await readMeta(id);
+    const groupId = typeof meta?.groupId === "string" ? meta.groupId : "";
+    if (groupId) counts.set(groupId, (counts.get(groupId) || 0) + 1);
+  }
+  return counts;
+}
+
+/** Public shape of a group; `count` is added by the list endpoint only. */
+const groupView = ({ id, name, color, createdAt, updatedAt }) => ({ id, name, color, createdAt, updatedAt });
+
+/** `grp_` + 8 hex chars, never colliding with an existing group. */
+async function newGroupId(groups) {
+  const taken = new Set(groups.map((group) => group.id));
+  for (let i = 0; i < 500; i += 1) {
+    const id = `grp_${randomBytes(4).toString("hex")}`;
+    if (!taken.has(id)) return id;
+  }
+  throw new Error("could not allocate a group id");
+}
+
+/** Validate the writable fields of a group body; `{ error }` means 400. */
+function groupInput(body, { required = false } = {}) {
+  const out = {};
+  if ("name" in body) {
+    if (typeof body.name !== "string") return { error: 'expected "name" to be a string' };
+    const name = body.name.trim();
+    if (!name) return { error: "name is required" };
+    if ([...name].length > GROUP_NAME_MAX) return { error: `name is longer than ${GROUP_NAME_MAX} characters` };
+    out.name = name;
+  } else if (required) {
+    return { error: 'expected "name" to be a string' };
+  }
+  if ("color" in body && body.color !== null && body.color !== undefined) {
+    if (!GROUP_COLORS.includes(body.color)) return { error: `color must be one of ${GROUP_COLORS.join(", ")}` };
+    out.color = body.color;
+  }
+  return out;
+}
+
+async function apiGroupsList(res) {
+  const { groups } = await readGroupStore();
+  const counts = await groupCounts();
+  json(res, 200, {
+    groups: groups.map((group) => ({ ...groupView(group), count: counts.get(group.id) || 0 })),
+  });
+}
+
+async function apiGroupCreate(res, req) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return fail(res, 400, "body is not valid JSON");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return fail(res, 400, "expected a JSON object");
+
+  const input = groupInput(body, { required: true });
+  if (input.error) return fail(res, 400, input.error);
+
+  const outcome = await withGroupsLock(async () => {
+    const { groups } = await readGroupStore();
+    if (groups.some((group) => sameGroupName(group.name, input.name))) return { conflict: true };
+    const now = new Date().toISOString();
+    const group = {
+      id: await newGroupId(groups),
+      name: input.name,
+      color: input.color || "violet",
+      createdAt: now,
+      updatedAt: now,
+    };
+    groups.push(group); // group order is array order: new groups append
+    await writeGroupStore(groups);
+    return { group };
+  });
+
+  if (outcome.conflict) return fail(res, 409, `group name already exists: ${input.name}`);
+  log("group created", outcome.group.id, outcome.group.name);
+  scheduleGalleryRebuild();
+  json(res, 201, { group: groupView(outcome.group) });
+}
+
+async function apiGroupPatch(res, req, id) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return fail(res, 400, "body is not valid JSON");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return fail(res, 400, "expected a JSON object");
+
+  const input = groupInput(body);
+  if (input.error) return fail(res, 400, input.error);
+  if (input.name === undefined && input.color === undefined) return fail(res, 400, 'expected "name" or "color" to be set');
+
+  const outcome = await withGroupsLock(async () => {
+    const { groups } = await readGroupStore();
+    const group = groups.find((entry) => entry.id === id);
+    if (!group) return { missing: true };
+    if (input.name !== undefined && groups.some((entry) => entry !== group && sameGroupName(entry.name, input.name))) {
+      return { conflict: true };
+    }
+    if (input.name !== undefined) group.name = input.name;
+    if (input.color !== undefined) group.color = input.color;
+    group.updatedAt = new Date().toISOString();
+    await writeGroupStore(groups);
+    return { group };
+  });
+
+  if (outcome.missing) return fail(res, 404, `group not found: ${id}`);
+  if (outcome.conflict) return fail(res, 409, `group name already exists: ${input.name}`);
+  log("group updated", outcome.group.id, outcome.group.name);
+  scheduleGalleryRebuild();
+  json(res, 200, { group: groupView(outcome.group) });
+}
+
+async function apiGroupDelete(res, id) {
+  const outcome = await withGroupsLock(async () => {
+    const { groups } = await readGroupStore();
+    const index = groups.findIndex((group) => group.id === id);
+    if (index === -1) return { missing: true };
+    groups.splice(index, 1);
+    await writeGroupStore(groups);
+
+    // Every board filed under the group goes back to ungrouped. Only the
+    // groupId key is rewritten: title/subtitle/tags (and anything hand-added)
+    // stay exactly as they were.
+    let moved = 0;
+    for (const [boardId] of await listBoards()) {
+      const meta = await readMeta(boardId);
+      if (meta?.groupId !== id) continue;
+      let cleared = false;
+      await withBoardLock(boardId, async () => {
+        await migrateLegacy(boardId);
+        const current = await readMeta(boardId);
+        if (current?.groupId !== id) return; // a concurrent patch already moved it
+        await mkdir(boardDir(boardId), { recursive: true });
+        await writeAtomic(metaPath(boardId), `${JSON.stringify({ ...current, groupId: null }, null, 2)}\n`);
+        cleared = true;
+      });
+      if (cleared) moved += 1;
+    }
+    return { moved };
+  });
+
+  if (outcome.missing) return fail(res, 404, `group not found: ${id}`);
+  log("group deleted", id, `(${outcome.moved} board(s) ungrouped)`);
+  scheduleGalleryRebuild();
+  json(res, 200, { deleted: id, moved: outcome.moved });
 }
 
 /* ---------------------------------------------------------- catalogue sync */
@@ -856,6 +1131,20 @@ const server = createServer(async (req, res) => {
       if (method === "GET") return await apiGet(res, id);
       if (method === "PUT") return await apiPut(res, req, id);
       if (method === "DELETE") return await apiDelete(res, id);
+      return fail(res, 405, "method not allowed");
+    }
+
+    if (path === "/api/groups") {
+      if (method === "GET") return await apiGroupsList(res);
+      if (method === "POST") return await apiGroupCreate(res, req);
+      return fail(res, 405, "method not allowed");
+    }
+
+    const groupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
+    if (groupMatch) {
+      const id = groupMatch[1];
+      if (method === "PATCH") return await apiGroupPatch(res, req, id);
+      if (method === "DELETE") return await apiGroupDelete(res, id);
       return fail(res, 405, "method not allowed");
     }
 
