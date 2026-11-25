@@ -9,6 +9,7 @@ import LassoTool from "./tools/LassoTool.jsx";
 import {
   attachCellText,
   buildGrid,
+  healGrid,
   gridMetrics,
   matchSizes,
   resizeGridColumn,
@@ -294,6 +295,19 @@ export default function App() {
   const goneRef = useRef(false);
   const presenceRef = useRef(null);
   const canvasRef = useRef(null);
+  const resizeDragRef = useRef(null); // scene as it was before the current slider drag
+  const resizeFrameRef = useRef(0);
+  const sceneEpochRef = useRef(0); // bumped whenever something other than a drag edits a table
+
+  /** Drop any half-finished slider drag: its base scene may already be outdated. */
+  const forgetResizeDrag = useCallback(() => {
+    sceneEpochRef.current += 1;
+    resizeDragRef.current = null;
+    if (resizeFrameRef.current) {
+      cancelAnimationFrame(resizeFrameRef.current);
+      resizeFrameRef.current = 0;
+    }
+  }, []);
   const toolsRef = useRef(null);
   const toolsNaturalRef = useRef(null);
   const toolsDragRef = useRef(null);
@@ -739,12 +753,15 @@ export default function App() {
     const first = rects[0].customData;
     const rows = Math.max(...rects.map((x) => x.customData?.r ?? 0)) + 1;
     const cols = Math.max(...rects.map((x) => x.customData?.c ?? 0)) + 1;
+    const head = elements.find((el) => !el.isDeleted && el.type === "text" && el.customData?.grid === gridId && el.customData?.title);
     return {
       grid: gridId,
       rows,
       cols,
       color: first.color,
       headerRow: first.headerRow,
+      // the panel edits the heading in place, so it has to know the current one
+      title: head?.text ?? "",
       width: metrics ? Math.round(metrics.bounds.width) : 0,
       height: metrics ? Math.round(metrics.bounds.height) : 0,
       rowHeights: metrics ? metrics.rows.map((row) => Math.round(row.height)) : [],
@@ -755,6 +772,7 @@ export default function App() {
   const sameGridInfo = (a, b) =>
     !!a &&
     !!b &&
+    a.title === b.title &&
     a.grid === b.grid &&
     a.rows === b.rows &&
     a.cols === b.cols &&
@@ -767,16 +785,53 @@ export default function App() {
 
   const onChange = useCallback(
     (elements, appState, files) => {
-      if (Date.now() < armedAtRef.current) return;
-      const selected = appState.selectedElementIds || {};
+      // Which table is selected has to follow the scene from the first click, even
+      // during the load burst: dropping those events left the panel saying "no
+      // table" for a cell the person had just clicked. Only saving waits.
       let hit = null;
+      const selectedIds = appState?.selectedElementIds || {};
       for (const el of elements) {
-        if (selected[el.id] && el.customData?.grid) {
+        if (selectedIds[el.id] && el.customData?.grid) {
           hit = describeGrid(elements, el.customData.grid);
           break;
         }
       }
       setSelectedGrid((prev) => (sameGridInfo(prev, hit) ? prev : hit));
+
+      if (Date.now() < armedAtRef.current) return;
+
+      // Text typed into a cell arrives at whatever size the editor used, and
+      // Excalidraw grows the container it is bound to when the text does not fit,
+      // so one edit can inflate a single cell and warp its row. Put the tiling
+      // back and shrink the text into it once the edit is committed; the second
+      // pass finds nothing to do, so this settles instead of looping.
+      const api = apiRef.current;
+      const scene = api?.getSceneElementsIncludingDeleted?.() ?? elements;
+      // not while a text editor is open (the cell is meant to grow until Escape)
+      // and not during a live drag/resize of anything on the canvas
+      if (!appState?.editingElement && !appState?.newElement && !appState?.draggingElement) {
+        const grids = new Set(
+          scene.filter((el) => el.customData?.grid && !el.isDeleted).map((el) => el.customData.grid),
+        );
+        let healed = scene;
+        let touched = false;
+        for (const gridId of grids) {
+          const next = healGrid(healed, gridId);
+          if (next) {
+            healed = next;
+            touched = true;
+          }
+        }
+        if (touched) {
+          window.requestAnimationFrame(() => {
+            // a repair, not user intent: keep it out of the undo history so a
+            // later Cmd+Z still steps over the edit that needed repairing
+            if (apiRef.current === api) api.updateScene({ elements: healed, captureUpdate: "NEVER" });
+          });
+          return;
+        }
+      }
+
       queueSave(elements, appState, files);
     },
     [describeGrid, queueSave],
@@ -819,6 +874,9 @@ export default function App() {
       return;
     }
 
+    // this scene did not come from our slider: the drag base is stale now
+    forgetResizeDrag();
+
     // Images live outside the element list: an image element only points at a
     // file id in `files`. Without the binary, the other side gets a blank image
     // (and can reject the whole scene), so merge files before the elements.
@@ -857,7 +915,7 @@ export default function App() {
       lastSavedRef.current = body;
       lastSentRef.current = body;
     }
-  }, [queueSave]);
+  }, [forgetResizeDrag, queueSave]);
 
   useEffect(() => {
     if (phase !== "ready" || !boardId) return undefined;
@@ -1024,6 +1082,7 @@ export default function App() {
       if (!api) throw new Error("editor ยังไม่พร้อม");
       if (!meta?.grid) throw new Error("คลิกเลือกช่องในตารางก่อน");
 
+      forgetResizeDrag();
       const all = api.getSceneElements();
       const mine = all.filter((el) => el.customData?.grid === meta.grid);
       if (!mine.length) throw new Error("ไม่พบตารางที่เลือก");
@@ -1050,6 +1109,10 @@ export default function App() {
       const headEl = mine.find((el) => el.customData?.title);
       const subEl = mine.find((el) => el.customData?.subtitle);
 
+      // the panel may ask for a new colour / header flag in the same update
+      const color = spec.color ?? meta.color;
+      const headerRow = spec.headerRow ?? meta.headerRow;
+
       const { elements } = buildGrid({
         columns: spec.columns,
         rows: spec.rows,
@@ -1057,9 +1120,13 @@ export default function App() {
         height: spec.height,
         colWidths: matchSizes(spec.colWidths ?? meta.colWidths, spec.columns),
         rowHeights: matchSizes(spec.rowHeights ?? meta.rowHeights, spec.rows),
-        color: meta.color,
-        headerRow: meta.headerRow,
+        color,
+        headerRow,
         gridId: meta.grid,
+        // pin ids to the grid + slot: the rebuilt cells replace the old ones in
+        // place, so one undo steps between two clean generations instead of
+        // leaving the previous generation alive next to this one
+        idPrefix: meta.grid,
         title: spec.title ?? headEl?.text ?? "",
         subtitle: spec.subtitle ?? subEl?.text ?? "",
       });
@@ -1076,6 +1143,7 @@ export default function App() {
           attachCellText(el, value, {
             groupIds: el.groupIds ?? [],
             customData: { grid: meta.grid, r, c },
+            id: `${el.id}-t`,
           }),
         );
       }
@@ -1088,6 +1156,9 @@ export default function App() {
           ...rebuilt,
         ],
         appState: { selectedElementIds: firstCell ? { [firstCell.id]: true } : {} },
+        // one rebuild = one undo step; without this Excalidraw coalesces several
+        // rebuilds into one entry and an undo lands on a half-applied scene
+        captureUpdate: "IMMEDIATELY",
       });
       try {
         api.scrollToContent(rebuilt, { fitToContent: false, animate: true });
@@ -1099,7 +1170,7 @@ export default function App() {
       queueSave(after, api.getAppState(), api.getFiles());
       return rebuilt.length;
     },
-    [describeGrid, queueSave],
+    [describeGrid, forgetResizeDrag, queueSave],
   );
 
   const growGrid = useCallback(
@@ -1136,9 +1207,6 @@ export default function App() {
 
   /* --------------------------------------------------- table row/column sizes */
 
-  const resizeDragRef = useRef(null); // scene as it was before the current slider drag
-  const resizeFrameRef = useRef(0);
-
   /**
    * Resize one track of the selected grid. `capture` decides whether Excalidraw
    * records an undo step ("NEVER" for live previews, "IMMEDIATELY" for real work)
@@ -1152,7 +1220,11 @@ export default function App() {
       const resize = axis === "row" ? resizeGridRow : resizeGridColumn;
       const result = resize(source, meta.grid, index, size, { rewrap });
       if (!result.changed) return null;
-      api.updateScene({ elements: result.elements, captureUpdate: capture });
+      // hand over the finished shape, not a half-finished one: every text has to
+      // fit its cell before the entry is captured, otherwise Excalidraw grows the
+      // cell itself right after the update and the undo/redo pair disagrees
+      const healed = healGrid(result.elements, meta.grid) ?? result.elements;
+      api.updateScene({ elements: healed, captureUpdate: capture });
       return result;
     },
     [],
@@ -1164,9 +1236,15 @@ export default function App() {
       const api = apiRef.current;
       if (!api || !meta?.grid) return;
       const drag = resizeDragRef.current;
-      if (!drag || drag.grid !== meta.grid || drag.axis !== axis || drag.index !== index) {
+      if (!drag || drag.grid !== meta.grid || drag.axis !== axis || drag.index !== index || drag.epoch !== sceneEpochRef.current) {
         // remember where the drag started so the commit can replay it as one step
-        resizeDragRef.current = { grid: meta.grid, axis, index, elements: api.getSceneElements() };
+        resizeDragRef.current = {
+          grid: meta.grid,
+          axis,
+          index,
+          epoch: sceneEpochRef.current,
+          elements: api.getSceneElements(),
+        };
       }
       if (resizeFrameRef.current) return;
       resizeFrameRef.current = requestAnimationFrame(() => {
@@ -1188,7 +1266,8 @@ export default function App() {
       }
       const drag = resizeDragRef.current;
       resizeDragRef.current = null;
-      const sameDrag = drag && drag.grid === meta.grid && drag.axis === axis && drag.index === index;
+      const sameDrag =
+        drag && drag.grid === meta.grid && drag.axis === axis && drag.index === index && drag.epoch === sceneEpochRef.current;
       if (sameDrag) {
         // the previews were never captured, so rewind first: the captured update
         // then replays the whole drag instead of just its last pixel of movement

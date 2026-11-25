@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const COLORS = ["gray", "blue", "green", "yellow", "orange", "red", "violet", "cyan"];
 
@@ -60,14 +60,16 @@ export default function TableBuilder({
   const [headerRow, setHeaderRow] = useState(true);
   const [note, setNote] = useState(null);
 
-  // when a cell of an existing grid is selected, mirror its size into the form
+  // when a cell of an existing grid is selected, mirror it into the form: the
+  // update button sends every field, so a stale heading would wipe the real one
   useEffect(() => {
     if (!open || !selected) return;
     setColumns(selected.cols);
     setRows(selected.rows);
     if (selected.width) setWidth(selected.width);
     if (selected.height) setHeight(selected.height);
-  }, [open, selected?.grid, selected?.cols, selected?.rows, selected?.width, selected?.height]);
+    setTitle(selected.title ?? "");
+  }, [open, selected?.grid, selected?.cols, selected?.rows, selected?.width, selected?.height, selected?.title]);
 
   const cellW = Math.max(1, Math.round(width / Math.max(1, columns)));
   const cellH = Math.max(1, Math.round(height / Math.max(1, rows)));
@@ -136,13 +138,34 @@ export default function TableBuilder({
     onPreviewCol?.(colIndex, next);
   };
 
-  /** A slider drag ends at pointerup/keyup/blur: commit whatever the draft says. */
+  /* A slider commits when a drag (or a keyboard nudge) ends, never on blur: the
+     draft still holds the value the thumb was left at, so a blur caused by an
+     unrelated click — pressing Cmd+Z on the board, switching rows — used to
+     re-apply that stale size and overwrite the restored one. */
+  const rowDragRef = useRef(false);
+  const colDragRef = useRef(false);
+
   const endRowDrag = () => {
+    if (!rowDragRef.current) return;
+    rowDragRef.current = false;
     if (rowIndex != null) applyRow(rowDraft);
   };
 
   const endColDrag = () => {
+    if (!colDragRef.current) return;
+    colDragRef.current = false;
     if (colIndex != null) applyCol(colDraft);
+  };
+
+  /** Focus left the slider without a drag: drop the draft, keep the real size. */
+  const dropRowDrag = () => {
+    rowDragRef.current = false;
+    setRowDraft(rowSize ?? cellH);
+  };
+
+  const dropColDrag = () => {
+    colDragRef.current = false;
+    setColDraft(colSize ?? cellW);
   };
 
   const insert = () => {
@@ -253,10 +276,16 @@ export default function TableBuilder({
               value={clamp(rowDraft, SIZE_LIMITS.row, rowSize ?? cellH)}
               disabled={rowIndex == null}
               onChange={(e) => previewRow(e.target.value)}
+              onPointerDown={() => {
+                rowDragRef.current = true;
+              }}
+              onKeyDown={() => {
+                rowDragRef.current = true;
+              }}
               onPointerUp={endRowDrag}
               onTouchEnd={endRowDrag}
               onKeyUp={endRowDrag}
-              onBlur={endRowDrag}
+              onBlur={dropRowDrag}
             />
             <div className="row">
               <label className="grow">
@@ -305,10 +334,16 @@ export default function TableBuilder({
               value={clamp(colDraft, SIZE_LIMITS.col, colSize ?? cellW)}
               disabled={colIndex == null}
               onChange={(e) => previewCol(e.target.value)}
+              onPointerDown={() => {
+                colDragRef.current = true;
+              }}
+              onKeyDown={() => {
+                colDragRef.current = true;
+              }}
               onPointerUp={endColDrag}
               onTouchEnd={endColDrag}
               onKeyUp={endColDrag}
-              onBlur={endColDrag}
+              onBlur={dropColDrag}
             />
           </div>
         )}
@@ -362,6 +397,11 @@ export default function TableBuilder({
                     rows: clamp(rows, LIMITS.rows, 4),
                     width: clamp(width, LIMITS.width, 520),
                     height: clamp(height, LIMITS.height, 240),
+                    // the heading, colour and header flag are edited in the same
+                    // panel, so the update button has to carry them too
+                    title: title.trim(),
+                    color,
+                    headerRow,
                   }),
                 "อัปเดตตารางแล้ว",
               )
