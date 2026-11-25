@@ -48,6 +48,8 @@ export default function TableBuilder({
   active,
   onResizeRow,
   onResizeCol,
+  onPreviewRow,
+  onPreviewCol,
 }) {
   const [title, setTitle] = useState("");
   const [columns, setColumns] = useState(3);
@@ -116,6 +118,31 @@ export default function TableBuilder({
     const next = clamp(value, SIZE_LIMITS.col, colSize ?? cellW);
     setColDraft(next);
     act(() => onResizeCol?.(colIndex, next), `คอลัมน์ ${colIndex + 1} กว้าง ${next} px`);
+  };
+
+  /* Sliders preview while the thumb moves and only commit when it is released, so
+     one drag is one undo step and one save. The number field stays for exact px. */
+  const previewRow = (value) => {
+    if (rowIndex == null) return;
+    const next = clamp(value, SIZE_LIMITS.row, rowSize ?? cellH);
+    setRowDraft(next);
+    onPreviewRow?.(rowIndex, next);
+  };
+
+  const previewCol = (value) => {
+    if (colIndex == null) return;
+    const next = clamp(value, SIZE_LIMITS.col, colSize ?? cellW);
+    setColDraft(next);
+    onPreviewCol?.(colIndex, next);
+  };
+
+  /** A slider drag ends at pointerup/keyup/blur: commit whatever the draft says. */
+  const endRowDrag = () => {
+    if (rowIndex != null) applyRow(rowDraft);
+  };
+
+  const endColDrag = () => {
+    if (colIndex != null) applyCol(colDraft);
   };
 
   const insert = () => {
@@ -216,6 +243,21 @@ export default function TableBuilder({
                 +
               </button>
             </div>
+            <input
+              type="range"
+              className="size-slider"
+              aria-label="สไลเดอร์ความสูงของแถวที่เลือก"
+              min={SIZE_LIMITS.row[0]}
+              max={SIZE_LIMITS.row[1]}
+              step={5}
+              value={clamp(rowDraft, SIZE_LIMITS.row, rowSize ?? cellH)}
+              disabled={rowIndex == null}
+              onChange={(e) => previewRow(e.target.value)}
+              onPointerUp={endRowDrag}
+              onTouchEnd={endRowDrag}
+              onKeyUp={endRowDrag}
+              onBlur={endRowDrag}
+            />
             <div className="row">
               <label className="grow">
                 ความกว้างคอลัมน์ {colIndex != null ? colIndex + 1 : "—"} (px)
@@ -253,6 +295,21 @@ export default function TableBuilder({
                 +
               </button>
             </div>
+            <input
+              type="range"
+              className="size-slider"
+              aria-label="สไลเดอร์ความกว้างของคอลัมน์ที่เลือก"
+              min={SIZE_LIMITS.col[0]}
+              max={SIZE_LIMITS.col[1]}
+              step={5}
+              value={clamp(colDraft, SIZE_LIMITS.col, colSize ?? cellW)}
+              disabled={colIndex == null}
+              onChange={(e) => previewCol(e.target.value)}
+              onPointerUp={endColDrag}
+              onTouchEnd={endColDrag}
+              onKeyUp={endColDrag}
+              onBlur={endColDrag}
+            />
           </div>
         )}
 

@@ -1129,37 +1129,86 @@ export default function App() {
     [applyGrid, gridElements],
   );
 
-  /** Size one row (index r) of the selected grid; keeps everything below it in place. */
-  const resizeRow = useCallback(
-    (meta, r, height) => {
+  /* --------------------------------------------------- table row/column sizes */
+
+  const resizeDragRef = useRef(null); // scene as it was before the current slider drag
+  const resizeFrameRef = useRef(0);
+
+  /**
+   * Resize one track of the selected grid. `capture` decides whether Excalidraw
+   * records an undo step ("NEVER" for live previews, "IMMEDIATELY" for real work)
+   * and `rewrap: false` skips the text measuring pass while a slider is moving.
+   */
+  const applyResize = useCallback(
+    (meta, axis, index, size, { base, rewrap = true, capture = "IMMEDIATELY" } = {}) => {
       const api = apiRef.current;
       if (!api || !meta?.grid) throw new Error("คลิกเลือกช่องในตารางก่อน");
-      const result = resizeGridRow(api.getSceneElements(), meta.grid, r, height);
-      if (!result.changed) return false;
-      api.updateScene({ elements: result.elements, captureUpdate: "IMMEDIATELY" });
-      const after = api.getSceneElements();
-      setSelectedGrid(describeGrid(after, meta.grid));
-      queueSave(after, api.getAppState(), api.getFiles());
-      return true;
+      const source = base ?? api.getSceneElements();
+      const resize = axis === "row" ? resizeGridRow : resizeGridColumn;
+      const result = resize(source, meta.grid, index, size, { rewrap });
+      if (!result.changed) return null;
+      api.updateScene({ elements: result.elements, captureUpdate: capture });
+      return result;
     },
-    [describeGrid, queueSave],
+    [],
   );
 
-  /** Size one column (index c) of the selected grid; text rewraps to the new width. */
-  const resizeCol = useCallback(
-    (meta, c, width) => {
+  /** Live feedback while a slider is dragged: never undoable, never saved. */
+  const previewResize = useCallback(
+    (meta, axis, index, size) => {
+      const api = apiRef.current;
+      if (!api || !meta?.grid) return;
+      const drag = resizeDragRef.current;
+      if (!drag || drag.grid !== meta.grid || drag.axis !== axis || drag.index !== index) {
+        // remember where the drag started so the commit can replay it as one step
+        resizeDragRef.current = { grid: meta.grid, axis, index, elements: api.getSceneElements() };
+      }
+      if (resizeFrameRef.current) return;
+      resizeFrameRef.current = requestAnimationFrame(() => {
+        resizeFrameRef.current = 0;
+        applyResize(meta, axis, index, size, { rewrap: false, capture: "NEVER" });
+      });
+    },
+    [applyResize],
+  );
+
+  /** Final size: one undo step and one save, however many previews came before. */
+  const commitResize = useCallback(
+    (meta, axis, index, size) => {
       const api = apiRef.current;
       if (!api || !meta?.grid) throw new Error("คลิกเลือกช่องในตารางก่อน");
-      const result = resizeGridColumn(api.getSceneElements(), meta.grid, c, width);
-      if (!result.changed) return false;
-      api.updateScene({ elements: result.elements, captureUpdate: "IMMEDIATELY" });
+      if (resizeFrameRef.current) {
+        cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = 0;
+      }
+      const drag = resizeDragRef.current;
+      resizeDragRef.current = null;
+      const sameDrag = drag && drag.grid === meta.grid && drag.axis === axis && drag.index === index;
+      if (sameDrag) {
+        // the previews were never captured, so rewind first: the captured update
+        // then replays the whole drag instead of just its last pixel of movement
+        api.updateScene({ elements: drag.elements, captureUpdate: "NEVER" });
+      }
+      const result = applyResize(meta, axis, index, size, {
+        base: sameDrag ? drag.elements : undefined,
+        rewrap: true,
+        capture: "IMMEDIATELY",
+      });
       const after = api.getSceneElements();
-      setSelectedGrid(describeGrid(after, meta.grid));
-      queueSave(after, api.getAppState(), api.getFiles());
-      return true;
+      if (result) {
+        setSelectedGrid(describeGrid(after, meta.grid));
+        queueSave(after, api.getAppState(), api.getFiles());
+      }
+      return Boolean(result);
     },
-    [describeGrid, queueSave],
+    [applyResize, describeGrid, queueSave],
   );
+
+  /** Size one row (index r) of the selected grid; keeps everything below it in place. */
+  const resizeRow = useCallback((meta, r, height) => commitResize(meta, "row", r, height), [commitResize]);
+
+  /** Size one column (index c) of the selected grid; text rewraps to the new width. */
+  const resizeCol = useCallback((meta, c, width) => commitResize(meta, "col", c, width), [commitResize]);
 
   const insertTable = useCallback(
     (spec) => {
@@ -1368,6 +1417,8 @@ export default function App() {
         active={activeCell}
         onResizeRow={(r, h) => resizeRow(selectedGrid, r, h)}
         onResizeCol={(c, w) => resizeCol(selectedGrid, c, w)}
+        onPreviewRow={(r, h) => previewResize(selectedGrid, "row", r, h)}
+        onPreviewCol={(c, w) => previewResize(selectedGrid, "col", c, w)}
       />
     </div>
   );

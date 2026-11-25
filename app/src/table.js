@@ -690,7 +690,7 @@ function refitCellText(el, box, rewrap) {
   };
 }
 
-function resizeTrack(elements, gridId, { axis, index, size, min, max }) {
+function resizeTrack(elements, gridId, { axis, index, size, min, max, rewrap = true }) {
   const rowsMode = axis === "row";
   const metrics = gridMetrics(elements, gridId);
   const track = metrics ? (rowsMode ? metrics.rows : metrics.cols) : [];
@@ -735,7 +735,7 @@ function resizeTrack(elements, gridId, { axis, index, size, min, max }) {
     if (!el.isDeleted && el.type === "text" && el.containerId && boxes.has(el.containerId)) {
       const cell = cellById.get(el.containerId);
       const nextBox = boxes.get(el.containerId);
-      const patched = refitCellText(el, nextBox, !rowsMode && nextBox.width !== cell.width);
+      const patched = refitCellText(el, nextBox, rewrap && !rowsMode && nextBox.width !== cell.width);
       changed += 1;
       return { ...patched, version: (el.version || 1) + 1, versionNonce: randInt(1e9), updated: now };
     }
@@ -744,25 +744,31 @@ function resizeTrack(elements, gridId, { axis, index, size, min, max }) {
   return { elements: out, changed, size: next, previous };
 }
 
-/** Grow/shrink one row: rows below shift, that row's text stays centred. */
-export function resizeGridRow(elements, gridId, r, height) {
+/**
+ * Grow/shrink one row: rows below shift, that row's text stays centred.
+ * `rewrap: false` skips the text measuring pass — used for live previews, where
+ * only the final size needs properly rewrapped text.
+ */
+export function resizeGridRow(elements, gridId, r, height, { rewrap = true } = {}) {
   return resizeTrack(elements, gridId, {
     axis: "row",
     index: Number(r) | 0,
     size: height,
     min: GRID_MIN_ROW_H,
     max: GRID_MAX_ROW_H,
+    rewrap,
   });
 }
 
 /** Grow/shrink one column: columns to the right shift, text rewraps. */
-export function resizeGridColumn(elements, gridId, c, width) {
+export function resizeGridColumn(elements, gridId, c, width, { rewrap = true } = {}) {
   return resizeTrack(elements, gridId, {
     axis: "col",
     index: Number(c) | 0,
     size: width,
     min: GRID_MIN_COL_W,
     max: GRID_MAX_COL_W,
+    rewrap,
   });
 }
 
