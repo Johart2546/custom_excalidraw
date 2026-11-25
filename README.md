@@ -28,6 +28,114 @@ docker ps --filter name=excalidraw-boards
 > เครื่องนี้ `DOCKER_BUILDKIT=0` ใช้ได้ถ้า buildx ฟ้อง permission (sandbox เขียน `~/.docker` ไม่ได้)
 > `DOCKER_BUILDKIT=0 docker build -t excalidraw-boards:latest app`
 
+คำสั่งข้างบนคือทางลัดตอนเครื่องพร้อมอยู่แล้ว — ถ้าจะ deploy จริง (รันเทสต์ → migrate → สร้าง catalog → build → ตรวจ → rollback)
+ดูหัวข้อถัดไป
+
+---
+
+## Deploy ขึ้น production
+
+production ของเราคือ **คอนเทนเนอร์ `excalidraw-boards` บนเครื่องนี้ตัวเดียว** — ไม่มี CI ไม่มี remote
+ข้อมูลจริงไม่ได้อยู่ในคอนเทนเนอร์ แต่อยู่บนโฮสต์ที่ `gallery/scenes/<id>/` (bind mount)
+ดังนั้น build ใหม่ / ลบ container / `docker compose down` **ไม่ทำให้กระดานหาย** และไม่มีอะไรต้อง backup ก่อน deploy
+(ถ้าอยาก backup จริง ๆ ก็ copy โฟลเดอร์ `gallery/scenes/` ทั้งก้อน)
+
+ระหว่าง `up -d --build` จะมี downtime สั้น ๆ ~1–2 วินาที: container ถูก stop แล้ว start ใหม่
+แท็บที่เปิดอยู่จะหลุด websocket แล้วต่อกลับเองอัตโนมัติ (ไฟล์ไม่หายเพราะบันทึกฝั่งเซิร์ฟเวอร์ไปแล้ว)
+
+### 1. เตรียม (ก่อน deploy)
+
+```bash
+cd ~/orca/projects/Excalidraw
+git status --short          # ต้องสะอาด — ถ้ามีของค้าง ให้ commit ก่อน
+git log --oneline -3
+```
+
+รันเทสต์ทั้งหมด (ทุกตัวสตาร์ทเซิร์ฟเวอร์ชั่วคราวใน temp เอง ไม่แตะ `gallery/scenes` ของจริง):
+
+```bash
+node scripts/test-board-storage.mjs    # โครงสร้างโฟลเดอร์, history, meta, DELETE, HISTORY_KEEP
+node scripts/test-board-meta.mjs       # เปลี่ยนชื่อ/คำอธิบาย
+node scripts/test-board-presence.mjs   # presence, heartbeat
+node scripts/test-grid-resize.mjs      # ตาราง: ย่อ/ขยายแถวและคอลัมน์
+```
+
+ถ้าแก้ UI ให้รัน e2e เพิ่ม (ต้องมีเซิร์ฟเวอร์ที่เสิร์ฟ build ล่าสุด + headless Chrome ในเครื่อง):
+
+```bash
+node scripts/e2e-ui.mjs http://127.0.0.1:5001   # default: http://127.0.0.1:5792
+```
+
+### 2. ย้ายกระดานรุ่นเก่า (เฉพาะครั้งแรก หรือหลังดึงโค้ดรุ่นโฟลเดอร์)
+
+```bash
+node scripts/migrate-scenes.mjs --dry-run   # ดูแผนก่อน ยังไม่เขียนอะไร
+node scripts/migrate-scenes.mjs             # รันจริง (รันซ้ำได้ ไม่ทำซ้ำ)
+```
+
+### 3. สร้าง catalog ใหม่ (ถ้ามีกระดานเพิ่ม/ลบ/เปลี่ยนชื่อ)
+
+```bash
+node gallery/build.mjs                # scenes/<id>/ -> gallery/site/index.html + thumbs/
+node gallery/build.mjs --force        # render thumbnail ใหม่ทุกใบ (ปกติข้ามใบที่ PNG ใหม่กว่าอยู่แล้ว)
+node gallery/build.mjs --no-render    # เร็ว: ไม่ render เลย ใช้ PNG เดิม (กระดานใหม่จะยังไม่มีพรีวิว)
+```
+
+`gallery/site/` ถูก mount เข้า container แบบอ่านอย่างเดียว (`:ro`) — generate บนโฮสต์เท่านั้น
+thumbnail ใช้ CLI `excalidraw` (override ด้วย `EXCALIDRAW_BIN=/path/to/cli`), จำนวนขนาน `RENDER_CONCURRENCY` (default 2)
+ถ้ามีกระดานใหม่ ต้องรันแบบไม่ใส่ `--no-render` ถึงจะได้พรีวิว (ถ้าไม่มี CLI จะขึ้น `1 without preview` แต่ catalog ยังใช้ได้)
+
+อัปเดต catalog **ไม่ต้อง build image ใหม่** — การ์ดในหน้า `/` อ่านจากโฟลเดอร์ที่ mount อยู่แล้วทันที
+
+### 4. build + restart
+
+```bash
+DOCKER_BUILDKIT=0 docker compose up -d --build    # ต้องปิด BuildKit บนเครื่องนี้
+docker compose ps                                 # ต้องได้ Up ... (healthy)
+```
+
+`DOCKER_BUILDKIT=0` จำเป็นเพราะ buildx เขียน `~/.docker` ไม่ได้ใน sandbox ของเครื่องนี้
+(ถ้าใช้ Docker ปกติที่ไม่ติด permission ใช้ `docker compose up -d --build` เปล่า ๆ ได้เลย)
+
+### 5. ตรวจหลัง deploy
+
+```bash
+docker compose logs --tail=30
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:5001/api/boards          # 200
+curl -s http://localhost:5001/api/boards | head -c 200                             # {"boards":[...]}
+curl -s http://localhost:5001/api/boards/<id>/history | head -c 200                # {"id":...,"keep":100,...}
+curl -s http://localhost:5001/b/<id> | grep -o '/assets/index-[^"]*' | head -1     # hash ของ bundle ใหม่
+```
+
+เปิดเบราว์เซอร์เช็กด้วยตาอีกรอบ: `<ip>:5001` → catalog ขึ้นการ์ดครบ → เข้า `/b/<id>` แล้ววาด/พิมพ์ 1 ครั้ง
+แล้วรอ ~1 วินาที `ls -lt gallery/scenes/*/scene.excalidraw` ว่าไฟล์ถูกเขียนจริง
+
+### 6. ย้อนกลับ (rollback)
+
+ไม่มี image tag แยกทุกเวอร์ชัน — ใช้ tag เดียว `excalidraw-boards:latest` ที่ build ใหม่ทับ
+จึงย้อนด้วยโค้ด:
+
+```bash
+git log --oneline -5
+git checkout <commit-ที่รู้ว่าดี>   # หรือ git revert ของ commit ล่าสุด
+DOCKER_BUILDKIT=0 docker compose up -d --build
+```
+
+ข้อมูลไม่ต้องย้อนตาม ยกเว้นจะเปลี่ยนโครงสร้างโฟลเดอร์ — เก็บสำเนา `gallery/scenes/` ไว้ก่อนก็พอ
+
+### 7. เข้าถึงจากเครื่องอื่น
+
+| ทาง | URL | หมายเหตุ |
+|---|---|---|
+| LAN (USB-Ethernet `en5`) | `http://<ip ของ en5>:5001` | IP มาจาก DHCP และ **เปลี่ยนได้** (เคยเป็น 172.16.42.140 แล้วเปลี่ยนเป็น 172.16.43.196) — เช็กด้วย `ipconfig getifaddr en5` |
+| Wi-Fi (`en0`) | `http://<ip ของ en0>:5001` | `ipconfig getifaddr en0` |
+| Tailscale | `http://100.113.18.38:5001` | ใช้ได้ทุกเครื่องที่อยู่ใน tailnet |
+| ชื่อเครื่อง (Bonjour/mDNS) | `http://Panyawats-MacBook-Air.local:5001` | รอดทุกครั้งที่ IP เปลี่ยน แต่ต้องอยู่วงเดียวกัน |
+
+คอนเทนเนอร์ผูก `0.0.0.0:5001->5002/tcp` และ firewall ของเครื่องปิดอยู่ — ถ้าเข้าไม่ได้จากเครื่องอื่น ให้ดู IP ก่อนเป็นอันดับแรก
+(ลิงก์ที่เคยใช้ได้แล้ววันดีคืนดีพัง มักเป็นเพราะ DHCP ให้ IP ใหม่ ไม่ใช่แอปมีปัญหา)
+อยากให้คงที่: ตั้ง DHCP reservation ที่ router หรือ static IP ที่ System Settings → Network
+
 ---
 
 ## โครงสร้าง
