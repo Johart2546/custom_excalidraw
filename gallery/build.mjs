@@ -435,6 +435,9 @@ function renderPage(entries, generatedAt) {
     box-shadow: 0 10px 30px rgba(31, 36, 71, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.7);
     transition: border-color .14s ease, transform .14s ease, box-shadow .14s ease;
   }
+  /* .card sets display:flex, which would otherwise override the hidden attribute
+     and make the search box look broken (cards stayed on screen). */
+  .card[hidden] { display: none; }
   .card:hover {
     border-color: color-mix(in srgb, var(--accent) 32%, var(--glass-line));
     transform: translateY(-2px);

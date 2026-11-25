@@ -458,7 +458,7 @@ export default function Minimap({ apiRef, visible = true, folded = false, onTogg
         aria-label="ขยายแผนที่ย่อ"
         title="ขยายแผนที่ย่อ"
       >
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" aria-hidden="true">
           <path d="M9 4 4 6.5v13L9 17l6 3 5-2.5v-13L15 7 9 4Z" />
           <path d="M9 4v13M15 7v13" />
         </svg>
@@ -484,7 +484,7 @@ export default function Minimap({ apiRef, visible = true, folded = false, onTogg
         aria-label="ย่อแผนที่ย่อ"
         title="ย่อแผนที่ย่อ"
       >
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
