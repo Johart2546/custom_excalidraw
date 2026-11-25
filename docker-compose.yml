@@ -1,6 +1,10 @@
 services:
   boards:
-    build: ./app
+    build:
+      # the repository root, so the image can carry gallery/build.mjs and
+      # scripts/migrate-scenes.mjs (see app/Dockerfile)
+      context: .
+      dockerfile: app/Dockerfile
     image: excalidraw-boards:latest
     container_name: excalidraw-boards
     ports:
@@ -8,8 +12,14 @@ services:
     volumes:
       # one folder per board: <id>/scene.excalidraw + meta.json + history/
       - ./gallery/scenes:/data
-      # catalogue + previews, generated on the host by gallery/build.mjs
-      - ./gallery/site:/gallery:ro
+      # catalogue page + previews: written at boot and refreshed after every save
+      # (the server runs gallery/build.mjs --no-render; thumbnails come from the
+      # host run of `node gallery/build.mjs`)
+      - ./gallery/site:/gallery
+    environment:
+      # keep the catalogue in step with the boards while the container runs
+      GALLERY_BUILD: /srv/tools/build.mjs
+      SKIP_GALLERY: "0"
     # keep files on the host owned by you instead of root
     user: "${DOCKER_UID:-501}:${DOCKER_GID:-20}"
     restart: unless-stopped

@@ -17,6 +17,8 @@
  *   DATA_DIR     board folders             (default ./gallery/scenes)
  *   APP_DIR      built SPA                 (default ./app/dist)
  *   GALLERY_DIR  built catalogue           (default ./gallery/site)
+ *   GALLERY_BUILD path to gallery/build.mjs; when set, the catalogue is
+ *                rewritten after every board write/rename/delete (default off)
  *   PORT         listen port               (default 5002)
  *   HISTORY_KEEP snapshots kept per board  (default 100)
  *
@@ -27,7 +29,8 @@
  */
 
 import { createServer } from "node:http";
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { copyFile, mkdir, readFile, readdir, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
@@ -36,6 +39,7 @@ const PORT = Number(process.env.PORT || 5002);
 const DATA_DIR = resolve(process.env.DATA_DIR || "./gallery/scenes");
 const APP_DIR = resolve(process.env.APP_DIR || "./app/dist");
 const GALLERY_DIR = resolve(process.env.GALLERY_DIR || "./gallery/site");
+const GALLERY_BUILD = process.env.GALLERY_BUILD ? resolve(process.env.GALLERY_BUILD) : "";
 /* 100 snapshots is the shipped default; an operator can lower or raise it. */
 const HISTORY_KEEP = (() => {
   const raw = Number(process.env.HISTORY_KEEP);
@@ -448,7 +452,46 @@ async function apiMetaPatch(res, req, id) {
   const view = metaView(id, meta);
   broadcast(id, { type: "meta", ...view });
   log("meta", id, view.title);
+  scheduleGalleryRebuild();
   json(res, 200, view);
+}
+
+/* ---------------------------------------------------------- catalogue sync */
+
+/**
+ * Rewrite the catalogue (index.html + manifest.json) shortly after a board
+ * changes, so the home page never lists a board that is gone or misses a new
+ * one. The container sets GALLERY_BUILD=/srv/tools/build.mjs; without it
+ * (plain `node server.mjs` in development) the host runs gallery/build.mjs.
+ *
+ * Debounced and fire-and-forget: a burst of keystroke saves costs one rebuild,
+ * and a failure only logs — saving a board never fails because of the catalog.
+ */
+let galleryTimer = null;
+let galleryRunning = false;
+const GALLERY_BUILD_AVAILABLE = Boolean(GALLERY_BUILD) && existsSync(GALLERY_BUILD);
+
+function scheduleGalleryRebuild() {
+  if (!GALLERY_BUILD_AVAILABLE) return;
+  if (galleryTimer) clearTimeout(galleryTimer);
+  galleryTimer = setTimeout(() => {
+    galleryTimer = null;
+    if (galleryRunning) return scheduleGalleryRebuild(); // one at a time
+    galleryRunning = true;
+    const child = spawn(process.execPath, [GALLERY_BUILD, "--no-render"], {
+      env: { ...process.env, SCENES_DIR: DATA_DIR, SITE_DIR: GALLERY_DIR },
+      stdio: "ignore",
+    });
+    child.on("error", (err) => {
+      galleryRunning = false;
+      log("catalogue rebuild failed:", err.message);
+    });
+    child.on("exit", (code) => {
+      galleryRunning = false;
+      if (code !== 0) log("catalogue rebuild exited with", code);
+    });
+  }, 1200);
+  galleryTimer.unref?.();
 }
 
 /* --------------------------------------------------------------------- api */
@@ -521,6 +564,7 @@ async function apiCreate(res, req) {
   await mkdir(boardDir(id), { recursive: true });
   await writeAtomic(scenePath(id), `${JSON.stringify(scene, null, 2)}\n`);
   log("created", id);
+  scheduleGalleryRebuild();
   json(res, 201, { id, scene });
 }
 
@@ -548,6 +592,7 @@ async function apiPut(res, req, id) {
     return fail(res, 400, 'expected a scene object with type "excalidraw" and an elements array');
   }
   await withBoardLock(id, () => saveScene(id, scene));
+  scheduleGalleryRebuild();
   json(res, 200, { id, elements: scene.elements.length, savedAt: Date.now() });
 }
 
@@ -574,6 +619,7 @@ async function apiDelete(res, id) {
     rooms.delete(id);
   }
   log("deleted", id);
+  scheduleGalleryRebuild();
   json(res, 200, { id, deleted: true });
 }
 
@@ -896,5 +942,5 @@ server.listen(PORT, "0.0.0.0", () => {
   log(`boards server on :${PORT}`);
   log(`data   ${DATA_DIR}`);
   log(`app    ${APP_DIR}`);
-  log(`gallery ${GALLERY_DIR}`);
+  log(`gallery ${GALLERY_DIR}` + (GALLERY_BUILD_AVAILABLE ? ` (rebuilds via ${GALLERY_BUILD})` : ""));
 });

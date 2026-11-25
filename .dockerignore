@@ -1,0 +1,16 @@
+# keep the build context small: only app sources, the catalogue builder and the
+# migration script are copied into the image (see app/Dockerfile)
+.git
+.gitignore
+.cache
+.tmp
+
+app/node_modules
+app/dist
+
+# boards and the built catalogue are host data, mounted at runtime — never baked
+gallery/scenes
+gallery/site
+
+*.log
+*.png

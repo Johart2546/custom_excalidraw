@@ -13,8 +13,25 @@ http://<ip-ของเครื่อง>:5001          # catalog + ตัว�
 
 ```bash
 cd ~/orca/projects/Excalidraw
-docker compose up -d --build
+docker compose up -d --build      # ครั้งแรกของเครื่อง (หรือหลังแก้โค้ด) เท่านั้น
 open http://localhost:5001
+```
+
+หลังจากนั้น `docker compose up -d` เฉย ๆ พอ — **ไม่ต้อง migrate กระดาน ไม่ต้อง generate catalog เอง**
+เพราะ entrypoint (`docker/entrypoint.sh`) ทำให้ทุกครั้งที่ container start:
+
+1. ย้ายกระดานรุ่นเก่าที่เป็นไฟล์แบน (`<id>.excalidraw` + `<id>.meta.json` + `.history/<id>/`) เข้าโฟลเดอร์ `<id>/` ให้อัตโนมัติ
+   (รันซ้ำได้ ไม่ทำซ้ำ; ข้ามด้วย `SKIP_MIGRATE=1`)
+2. เขียน `gallery/site/index.html` + `manifest.json` จากข้อมูลจริงใน `gallery/scenes/`
+   → เปิด `/` ได้เสมอ แม้ยังไม่มีกระดานสักใบ (ขึ้นข้อความ “ยังไม่มีกระดาน…” + ปุ่ม “+ กระดานใหม่”; ข้ามด้วย `SKIP_GALLERY=1`)
+
+ระหว่างใช้งานจริง ทุกครั้งที่ **สร้าง / บันทึก / เปลี่ยนชื่อ / ลบ** กระดาน เซิร์ฟเวอร์จะสั่งสร้าง catalog ใหม่ให้เองใน ~1.2 วินาที
+(`GALLERY_BUILD=/srv/tools/build.mjs` ใน `docker-compose.yml`) — การ์ดในหน้า `/` จึงตรงกับข้อมูลเสมอ ไม่ต้องรันสคริปต์บนโฮสต์
+
+ยังต้องรันบนโฮสต์อยู่ **อย่างเดียว**: render รูปพรีวิว (ในคอนเทนเนอร์ไม่มี Chrome/CLI ของ excalidraw)
+
+```bash
+node gallery/build.mjs        # ได้ PNG พรีวิวของกระดานที่ยังไม่มี; กระดานที่ไม่มีพรีวิวขึ้นช่อง “ยังไม่มีภาพตัวอย่าง”
 ```
 
 หยุด / ดูสถานะ:
@@ -25,11 +42,9 @@ docker compose logs -f
 docker ps --filter name=excalidraw-boards
 ```
 
-> เครื่องนี้ `DOCKER_BUILDKIT=0` ใช้ได้ถ้า buildx ฟ้อง permission (sandbox เขียน `~/.docker` ไม่ได้)
-> `DOCKER_BUILDKIT=0 docker build -t excalidraw-boards:latest app`
-
-คำสั่งข้างบนคือทางลัดตอนเครื่องพร้อมอยู่แล้ว — ถ้าจะ deploy จริง (รันเทสต์ → migrate → สร้าง catalog → build → ตรวจ → rollback)
-ดูหัวข้อถัดไป
+> build context คือ root ของ repo (เพราะอิมเมจต้องพก `gallery/build.mjs` + `scripts/migrate-scenes.mjs`):
+> `docker build -f app/Dockerfile -t excalidraw-boards:latest .`
+> เครื่องนี้ถ้า buildx ฟ้อง permission (sandbox เขียน `~/.docker` ไม่ได้) ให้เติม `DOCKER_BUILDKIT=0` ข้างหน้า
 
 ---
 
@@ -66,14 +81,20 @@ node scripts/test-grid-resize.mjs      # ตาราง: ย่อ/ขยาย
 node scripts/e2e-ui.mjs http://127.0.0.1:5001   # default: http://127.0.0.1:5792
 ```
 
-### 2. ย้ายกระดานรุ่นเก่า (เฉพาะครั้งแรก หรือหลังดึงโค้ดรุ่นโฟลเดอร์)
+### 2. ย้ายกระดานรุ่นเก่า — ปกติไม่ต้องทำเอง
+
+entrypoint รัน `scripts/migrate-scenes.mjs` ให้ทุกครั้งที่ container start (`SKIP_MIGRATE=1` เพื่อข้าม)
+ถ้าอยากเห็นแผนหรือรันเองบนโฮสต์ก่อน deploy:
 
 ```bash
 node scripts/migrate-scenes.mjs --dry-run   # ดูแผนก่อน ยังไม่เขียนอะไร
 node scripts/migrate-scenes.mjs             # รันจริง (รันซ้ำได้ ไม่ทำซ้ำ)
 ```
 
-### 3. สร้าง catalog ใหม่ (ถ้ามีกระดานเพิ่ม/ลบ/เปลี่ยนชื่อ)
+### 3. สร้าง catalog ใหม่ — ปกติไม่ต้องทำเอง (เว้นอยากได้พรีวิว)
+
+คอนเทนเนอร์เขียน `index.html` + `manifest.json` เองตอน start และหลังทุกครั้งที่กระดานเปลี่ยน
+ทำมือบนโฮสต์เมื่อต้องการ **thumbnail ใหม่** เท่านั้น:
 
 ```bash
 node gallery/build.mjs                # scenes/<id>/ -> gallery/site/index.html + thumbs/
@@ -81,11 +102,12 @@ node gallery/build.mjs --force        # render thumbnail ใหม่ทุก�
 node gallery/build.mjs --no-render    # เร็ว: ไม่ render เลย ใช้ PNG เดิม (กระดานใหม่จะยังไม่มีพรีวิว)
 ```
 
-`gallery/site/` ถูก mount เข้า container แบบอ่านอย่างเดียว (`:ro`) — generate บนโฮสต์เท่านั้น
+`gallery/site/` mount แบบอ่าน–เขียน (คอนเทนเนอร์ต้องเขียน `index.html`/`manifest.json` ได้)
 thumbnail ใช้ CLI `excalidraw` (override ด้วย `EXCALIDRAW_BIN=/path/to/cli`), จำนวนขนาน `RENDER_CONCURRENCY` (default 2)
 ถ้ามีกระดานใหม่ ต้องรันแบบไม่ใส่ `--no-render` ถึงจะได้พรีวิว (ถ้าไม่มี CLI จะขึ้น `1 without preview` แต่ catalog ยังใช้ได้)
+ในคอนเทนเนอร์ใช้ `--no-render` เสมอ: กระดานที่ยังไม่มี PNG ขึ้นช่อง “ยังไม่มีภาพตัวอย่าง” แล้วค่อยรันบนโฮสต์ทีหลังได้
 
-อัปเดต catalog **ไม่ต้อง build image ใหม่** — การ์ดในหน้า `/` อ่านจากโฟลเดอร์ที่ mount อยู่แล้วทันที
+อัปเดต catalog **ไม่ต้อง build image ใหม่**
 
 ### 4. build + restart
 
@@ -146,12 +168,14 @@ app/                    # ตัวแอป (React + @excalidraw/excalidraw 0.1
   src/TableBuilder.jsx  # แผงขวา: หัวเรื่อง, คอลัมน์, แถว, สี, monospace
   src/table.js          # ตัว generate ตาราง -> elements (rect/line/text)
   server.mjs            # node:http API + WebSocket ต่อกระดาน + static (dependency เดียว: ws)
-  Dockerfile            # multi-stage: vite build -> node:24-slim
+  Dockerfile            # multi-stage: vite build -> node:24-slim (build context = repo root)
 gallery/
   scenes/               # ← กระดานทั้งหมด: scenes/<id>/scene.excalidraw (ไดเรกทอรีเดียวกับที่ API อ่าน/เขียน)
   build.mjs             # สแกน scenes/<id>/ -> พรีวิว PNG + catalog (index.html)
   site/                 # ผลลัพธ์ของ build.mjs (ไม่ commit)
 docker/nginx.conf       # nginx ของ image ทางการ (เก็บไว้ใช้ถ้าอยากได้แค่ static)
+docker/entrypoint.sh    # ตอน start: migrate กระดานรุ่นแบน + เขียน catalog (ทำให้ `docker compose up` พอ)
+.dockerignore           # ตัด node_modules/dist/gallery ออกจาก build context
 docker-compose.yml
 scripts/excalidraw-table.mjs  # CLI สร้างตารางเป็นไฟล์ .excalidraw (ใช้ใน CI/สคริปต์)
 scripts/migrate-scenes.mjs    # ย้ายกระดานรุ่นไฟล์แบน -> โฟลเดอร์ต่อกระดาน
@@ -168,7 +192,7 @@ scripts/migrate-scenes.mjs    # ย้ายกระดานรุ่นไฟ
     history/<เวลา ISO>.excalidraw  ← สำเนาก่อนถูกเขียนทับ (เก่าสุดอยู่ต้นชื่อ)
   ```
 
-- container mount `./gallery/scenes` → `/data` แบบอ่าน/เขียน และ `./gallery/site` → `/gallery` แบบอ่านอย่างเดียว — โครงสร้างนี้อยู่บน host ตรง ๆ ไม่มีฐานข้อมูลให้ backup; จะย้ายเครื่องก็คัดลอกโฟลเดอร์ `gallery/scenes` ทั้งก้อน
+- container mount `./gallery/scenes` → `/data` และ `./gallery/site` → `/gallery` แบบอ่าน/เขียน (คอนเทนเนอร์เขียน `index.html`/`manifest.json` เอง) — โครงสร้างนี้อยู่บน host ตรง ๆ ไม่มีฐานข้อมูลให้ backup; จะย้ายเครื่องก็คัดลอกโฟลเดอร์ `gallery/scenes` ทั้งก้อน
 - ทุกครั้งที่บันทึก เซิร์ฟเวอร์จะ
   1. copy ไฟล์เดิมไปเก็บที่ `gallery/scenes/<id>/history/<เวลา ISO>.excalidraw` (เก็บ **100** snapshot ล่าสุดต่อกระดาน — ดูหัวข้อถัดไป)
   2. เขียนไฟล์ใหม่แบบ atomic (`.tmp-...` แล้ว rename) — ไฟล์ไม่พังถ้าเขียนค้าง
@@ -293,7 +317,8 @@ node gallery/build.mjs --no-render # แค่สร้าง index.html (เร
 { "title": "Inventory board", "subtitle": "กระดานหลักของโมดูล inventory", "tags": ["inventory"] }
 ```
 
-กระดานที่เซฟผ่านเว็บจะโผล่ในหน้าแรกทันที (ดึงจาก `/api/boards`) แม้ยังไม่มีพรีวิว — พอสั่ง `node gallery/build.mjs` ก็จะมีรูปขึ้น
+การ์ดในหน้า `/` อัปเดตเองหลังสร้าง/บันทึก/เปลี่ยนชื่อ/ลบ (เซิร์ฟเวอร์เรียก `build.mjs --no-render` ให้ใน ~1.2 วินาที) —
+เหลือแค่รูปพรีวิวที่ต้องสั่ง `node gallery/build.mjs` บนโฮสต์ กระดานที่ยังไม่มีรูปจะขึ้นช่อง “ยังไม่มีภาพตัวอย่าง” ก่อน
 ทดสอบ build กับข้อมูลชั่วคราวได้โดยไม่แตะของจริง: `SCENES_DIR=/tmp/scenes SITE_DIR=/tmp/site node gallery/build.mjs --no-render`
 
 ## เปลี่ยนชื่อกระดาน
@@ -350,6 +375,9 @@ node gallery/build.mjs
 | `HISTORY_KEEP` | `100` | จำนวน snapshot ต่อกระดาน (เกินแล้วลบเก่าสุดก่อน; `0` = ไม่เก็บ) |
 | `MAX_BODY` | `32MB` | เพดานขนาด payload ตอน PUT และข้อความ WebSocket |
 | `HEARTBEAT_MS` | `30000` | ช่วง ping ตรวจ socket ที่ตายแล้ว (ต่ำสุด 100 — ใช้เร่งตอนเทสต์) |
+| `GALLERY_BUILD` | `/srv/tools/build.mjs` | สคริปต์ที่เซิร์ฟเวอร์เรียกหลังกระดานเปลี่ยน เพื่อเขียน catalog ใหม่ (`--no-render`); ไม่ตั้ง = ไม่ refresh เอง |
+| `SKIP_MIGRATE` | `0` | `1` = entrypoint ไม่ต้อง migrate กระดานแบนรุ่นเก่า |
+| `SKIP_GALLERY` | `0` | `1` = entrypoint ไม่ต้องเขียน catalog ตอน start (เช่น mount `/gallery` แบบอ่านอย่างเดียว) |
 
 ## แก้ไขระหว่างพัฒนา
 
@@ -366,7 +394,9 @@ node server.mjs  # เสิร์ฟ dist แบบ production ที่ :5002
 | อาการ | สาเหตุ / ทางแก้ |
 |---|---|
 | `bind: address already in use` ตอนใช้พอร์ต 5000 | macOS AirPlay Receiver จอง 5000 ไว้ — ปิดที่ System Settings → General → AirDrop & Handoff → AirPlay Receiver หรือใช้ 5001 ตามค่าเริ่มต้น |
-| `docker build` ฟ้อง `failed to update builder last activity time` | buildx เขียน `~/.docker` ไม่ได้ (sandbox) → `DOCKER_BUILDKIT=0 docker build ...` |
+| `docker build` ฟ้อง `failed to update builder last activity time` | buildx เขียน `~/.docker` ไม่ได้ (sandbox) → `DOCKER_BUILDKIT=0 docker build -f app/Dockerfile .` |
+| `docker build ./app` ฟ้อง `COPY docker/entrypoint.sh: not found` | build context ย้ายไป root ของ repo แล้ว — ใช้ `docker build -f app/Dockerfile .` หรือ `docker compose build` |
+| เปิด `/` แล้ว 404 / การ์ดไม่อัปเดต | เช็ก log ตอน start ว่ามี `catalogue build failed` ไหม และ `gallery/site` ต้องเขียนได้ (ไม่ใช่ `:ro`) |
 | คอนเทนเนอร์ restart วน `EACCES /srv/server.mjs` | ไฟล์ถูก COPY มาด้วยโหมด `600` → Dockerfile มี `chmod -R a+rX /srv` แล้ว; ถ้าแก้เองให้ `chmod 644 app/server.mjs` |
 | เปิดกระดานแล้วว่าง | id ใน URL ไม่ตรงชื่อโฟลเดอร์ — ดูรายการจริงที่ `curl /api/boards` |
 | แก้ในเบราว์เซอร์แล้วหาย | หน้าแก้ไขไม่มีป้ายสถานะแล้ว — รอ ~1 วินาทีแล้ว `ls -lt gallery/scenes/*/scene.excalidraw` ว่าไฟล์ถูกเขียน; ถ้าไม่เขียนดู `docker compose logs` (PUT `/api/boards/<id>` ต้องได้ 200) |

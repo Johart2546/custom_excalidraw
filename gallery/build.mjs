@@ -143,7 +143,10 @@ function isDirectory(path) {
 
 function collectScenes() {
   if (!existsSync(SCENES)) {
-    throw new Error(`scenes folder not found: ${SCENES}`);
+    // first boot of a fresh install: nothing mounted/created yet, which is the
+    // same as an empty library — the empty catalogue below is the answer
+    process.stderr.write(`scenes folder not found, treating as empty: ${SCENES}\n`);
+    return [];
   }
   const names = readdirSync(SCENES).sort();
   const scenes = [];
@@ -266,7 +269,9 @@ async function renderThumbnail(scene, thumbPath) {
     return { ok: true, cached: true };
   }
   if (NO_RENDER) {
-    return { ok: existsSync(thumbPath), cached: true };
+    // --no-render never renders: it only reuses what the host already produced,
+    // so a missing preview is "not yet", not a failure
+    return { ok: existsSync(thumbPath), cached: true, skipped: true };
   }
   const result = await runProcess(CLI, [
     "render",
@@ -550,6 +555,7 @@ function renderPage(entries, generatedAt) {
 <main class="grid" id="grid">
 ${cards}
 </main>
+${entries.length === 0 ? '<p class="empty" id="no-boards">ยังไม่มีกระดานในเซิร์ฟเวอร์นี้ — กด “+ กระดานใหม่” เพื่อเริ่ม</p>' : ""}
 <p class="empty" id="empty" hidden>ไม่พบกระดานที่ตรงกับชื่อนี้</p>
 <footer>อัปเดต ${escapeHtml(generatedAt)}</footer>
 <div class="modal" id="del-modal" hidden>
@@ -937,8 +943,9 @@ async function main() {
 
   const scenes = collectScenes();
   if (scenes.length === 0) {
-    process.stderr.write(`no boards in ${SCENES} (expected <id>/scene.excalidraw)\n`);
-    process.exit(1);
+    // a brand-new install has no boards yet: write the empty catalogue instead
+    // of failing, so / is a page with a "+ กระดานใหม่" button and not a 404
+    process.stderr.write(`no boards in ${SCENES} yet (expected <id>/scene.excalidraw)\n`);
   }
 
   // Drop thumbnails/copies whose source scene no longer exists.
@@ -956,7 +963,9 @@ async function main() {
     const info = describeScene(scene);
     const thumbPath = join(THUMBS, `${scene.slug}.png`);
     const result = await renderThumbnail(scene, thumbPath);
-    if (!result.ok) {
+    if (!result.ok && result.skipped) {
+      process.stdout.write(`  · ${scene.slug} (no preview yet)\n`);
+    } else if (!result.ok) {
       process.stdout.write(`  ! ${scene.slug}: thumbnail failed — ${result.error || "unknown"}\n`);
     } else {
       process.stdout.write(`  ${result.cached ? "=" : "✓"} ${scene.slug}\n`);
