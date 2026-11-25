@@ -55,6 +55,19 @@ const IconTable = () => (
   </svg>
 );
 
+/* Theme toggle: a moon while light, a sun while dark. */
+const IconMoon = () => (
+  <svg {...icon} width={17} height={17} strokeWidth={1.6}>
+    <path d="M20.2 14.8A8.2 8.2 0 1 1 9.6 3.8a6.6 6.6 0 0 0 10.6 11z" />
+  </svg>
+);
+const IconSun = () => (
+  <svg {...icon} width={17} height={17} strokeWidth={1.6}>
+    <circle cx="12" cy="12" r="4.1" />
+    <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6" />
+  </svg>
+);
+
 /* Same metrics as the table button: a map frame with the viewport inside. */
 const IconMinimap = () => (
   <svg {...icon} width={17} height={17} strokeWidth={1.6}>
@@ -192,20 +205,17 @@ function tabSid() {
   }
 }
 
-/**
- * The board's own theme wins; a board that never stored one opens light, even
- * on a machine set to dark. Nothing here reads prefers-color-scheme.
- */
-function themeOf(appState) {
-  return appState && appState.theme === "dark" ? "dark" : "light";
-}
-
 /* The drawing tools float above the canvas: drag the little grip to move them
    anywhere, and fold them away when the canvas needs the room. */
 const TOOLS_KEY = "boards-tools";
 const MINIMAP_KEY = "boards-minimap";
 const MINIMAP_FOLD_KEY = "boards-minimap-fold";
+const THEME_KEY = "boards-theme";
 const TOOLS_MARGIN = 8;
+
+/* Below this width Excalidraw swaps in its own mobile row and our extra controls
+   step aside; the same breakpoint as the stylesheet. */
+const isPhone = () => window.matchMedia("(max-width: 560px)").matches;
 
 function readToolsPrefs() {
   try {
@@ -232,7 +242,16 @@ export default function App() {
   const [peers, setPeers] = useState([]);
   const [live, setLive] = useState("connecting"); // connecting | open | closed
   const [title, setTitle] = useState(boardId || "");
-  const [theme, setTheme] = useState("light");
+  const [theme, setTheme] = useState(() => {
+    try {
+      return window.localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  });
+  // the board's saved theme wins, but a board that never stored one opens in
+  // whatever this browser used last
+  const themePrefRef = useRef(theme);
   const toolsPrefsRef = useRef(null);
   if (!toolsPrefsRef.current) toolsPrefsRef.current = readToolsPrefs();
   const [toolsPos, setToolsPos] = useState(() => {
@@ -278,6 +297,16 @@ export default function App() {
   // DOM slot inside Excalidraw's top-right menu row (next to Library), when that
   // row exists. Phones have no such row, so the stack falls back to the corner.
   const [presenceHost, setPresenceHost] = useState(null);
+  // the html element carries the theme so the page chrome and the canvas agree
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    try {
+      window.localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      /* private mode: the toggle still works for this session */
+    }
+  }, [theme]);
 
   const apiRef = useRef(null);
   const wsRef = useRef(null);
@@ -335,7 +364,12 @@ export default function App() {
       armedAtRef.current = Date.now() + ARM_DELAY;
       lastSavedRef.current = payloadFor(data.elements || [], data.appState || {}, data.files || {});
       setTitle(loadedTitle);
-      setTheme(themeOf(data.appState));
+      // a board that stored a theme keeps it; one that never did follows the
+      // last choice made in this browser
+      const storedTheme = data.appState && data.appState.theme;
+      setTheme(
+        storedTheme === "dark" || storedTheme === "light" ? storedTheme : themePrefRef.current,
+      );
       setScene(data);
       setPhase("ready");
     })().catch((error) => {
@@ -390,7 +424,6 @@ export default function App() {
   // so it can travel over the canvas and stay put when the canvas scrolls).
   /* Phones keep Excalidraw's own mobile tool row: it is already sized for the
      small island, and floating it would push the row past the screen edge. */
-  const phoneRow = () => window.matchMedia("(max-width: 560px)").matches;
 
   // Excalidraw mounts its toolbar a frame or two after the board becomes ready,
   // and re-renders it as a fresh node now and then. Poll for a while instead of
@@ -404,7 +437,7 @@ export default function App() {
     const startedAt = performance.now();
     const look = () => {
       if (cancelled) return;
-      if (!phoneRow()) {
+      if (!isPhone()) {
         const row = canvasRef.current?.querySelector(".App-toolbar");
         const stack = row?.querySelector(".Stack.Stack_horizontal");
         if (stack && !row.querySelector(".tools-grip")) setToolsEpoch((value) => value + 1);
@@ -419,7 +452,7 @@ export default function App() {
   }, [phase]);
 
   useEffect(() => {
-    if (phase !== "ready" || phoneRow()) return undefined;
+    if (phase !== "ready" || isPhone()) return undefined;
     const el = canvasRef.current?.querySelector(".App-toolbar");
     if (!el) return undefined;
     const stack = el.querySelector(":scope > .Stack.Stack_horizontal") || el.querySelector(".Stack.Stack_horizontal");
@@ -592,6 +625,16 @@ export default function App() {
     let queued = false;
 
     const attach = () => {
+      if (isPhone()) {
+        // the desktop row scrolls out of the phone viewport, so the stack goes
+        // back to the pinned corner instead of docking
+        if (host) {
+          host.remove();
+          host = null;
+        }
+        setPresenceHost(null);
+        return;
+      }
       const row = canvas.querySelector(".layer-ui__wrapper__top-right");
       if (!row) {
         if (host) {
@@ -634,7 +677,7 @@ export default function App() {
       if (host) host.remove();
       setPresenceHost(null);
     };
-  }, [phase]);
+  }, [phase, toolsEpoch]);
 
   useEffect(() => {
     const el = toolsRef.current;
@@ -1308,6 +1351,19 @@ export default function App() {
         ? "กำลังเชื่อมต่อกับกระดานนี้"
         : "ออฟไลน์";
 
+  const themeButton = (
+    <button
+      type="button"
+      className="theme-toggle"
+      onClick={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
+      aria-label={theme === "dark" ? "สลับเป็นโหมดสว่าง" : "สลับเป็นโหมดมืด"}
+      aria-pressed={theme === "dark"}
+      title={theme === "dark" ? "โหมดสว่าง" : "โหมดมืด"}
+    >
+      {theme === "dark" ? <IconSun /> : <IconMoon />}
+    </button>
+  );
+
   const presenceNode = (
     <div
       className={`presence ${live}${presenceHost ? " docked" : ""}`}
@@ -1347,7 +1403,20 @@ export default function App() {
 
   return (
     <div className={`shell${panelOpen ? " panel-open" : ""}${toolsReady && toolsCollapsed ? " tools-collapsed" : ""}`}>
-      {presenceHost ? createPortal(presenceNode, presenceHost) : presenceNode}
+      {presenceHost ? (
+        createPortal(
+          <span className="top-actions docked">
+            {themeButton}
+            {presenceNode}
+          </span>,
+          presenceHost,
+        )
+      ) : (
+        <span className="top-actions">
+          {themeButton}
+          {presenceNode}
+        </span>
+      )}
       {tableSlot &&
         createPortal(
           <>
@@ -1395,7 +1464,13 @@ export default function App() {
           }}
         />
         <GridOverlay apiRef={apiRef} canvasRef={canvasRef} activeCell={activeCell} />
-        <Minimap apiRef={apiRef} visible={minimapOn} folded={minimapFolded} onToggle={() => setMinimapFolded((folded) => !folded)} />
+        <Minimap
+              apiRef={apiRef}
+              theme={theme}
+              visible={minimapOn}
+              folded={minimapFolded}
+              onToggle={() => setMinimapFolded((folded) => !folded)}
+            />
       </div>
 
       {toolsReady && toolsCollapsed && toolsPos && (

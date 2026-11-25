@@ -548,6 +548,7 @@ async function openEditor() {
         cls: p.className,
         docked: Boolean(row),
         parent: p.parentElement.className,
+        inSlot: Boolean(p.closest(".presence-slot")),
         rect: [r.left, r.top, r.right, r.bottom].map((n) => Math.round(n)),
         top: Math.round(r.top), height: Math.round(r.height), left: Math.round(r.left),
         libTop: libRect ? Math.round(libRect.top) : null,
@@ -560,7 +561,9 @@ async function openEditor() {
     })()`);
     check(
       "presence rides in Excalidraw's top-right menu row",
-      presenceBox.docked === true && presenceBox.parent === "presence-slot",
+      presenceBox.docked === true &&
+        presenceBox.parent === "top-actions docked" &&
+        presenceBox.inSlot === true,
       JSON.stringify(presenceBox),
     );
     check(
@@ -625,6 +628,53 @@ async function openEditor() {
       (await cdp.evaluate(`document.querySelector(".tools-table").classList.contains("active")`)) === false,
     );
 
+    /* -------------------------------------------------------------- theme */
+    const themeLight = await cdp.evaluate(`(() => {
+      const toggle = document.querySelector(".theme-toggle");
+      const style = getComputedStyle(document.querySelector(".panel") || document.body);
+      return {
+        attr: document.documentElement.dataset.theme,
+        toggle: toggle ? Math.round(toggle.getBoundingClientRect().width) : 0,
+        ink: style.color,
+      };
+    })()`);
+    check(
+      "theme toggle sits in the top band and the board opens light",
+      themeLight.attr === "light" && themeLight.toggle >= 28,
+      JSON.stringify(themeLight),
+    );
+    await cdp.evaluate(`document.querySelector(".theme-toggle").click()`);
+    await cdp.waitFor(`document.documentElement.dataset.theme === "dark"`, { label: "dark theme" });
+    await sleep(350);
+    const themeDark = await cdp.evaluate(`(() => {
+      const canvas = getComputedStyle(document.querySelector(".canvas"));
+      const body = getComputedStyle(document.body);
+      return {
+        attr: document.documentElement.dataset.theme,
+        canvas: canvas.backgroundColor,
+        app: window.__boardsApi.getAppState().theme,
+        ink: body.color,
+      };
+    })()`);
+    check(
+      "dark theme repaints the page and the editor",
+      themeDark.attr === "dark" && themeDark.app === "dark" && themeDark.canvas === "rgb(18, 18, 27)",
+      JSON.stringify(themeDark),
+    );
+    await cdp.navigate(`${BASE}/b/${BOARD}`);
+    await cdp.waitFor(`!!window.__boardsApi`, { label: "editor after theme reload" });
+    await sleep(600);
+    const themeReload = await cdp.evaluate(
+      `({ attr: document.documentElement.dataset.theme, app: window.__boardsApi.getAppState().theme })`,
+    );
+    check(
+      "the board keeps its dark theme across a reload",
+      themeReload.attr === "dark" && themeReload.app === "dark",
+      JSON.stringify(themeReload),
+    );
+    await cdp.evaluate(`document.querySelector(".theme-toggle").click()`);
+    await cdp.waitFor(`document.documentElement.dataset.theme === "light"`, { label: "light theme back" });
+
     await cdp.viewport(393, 852, true);
     await cdp.navigate(`${BASE}/b/${BOARD}`);
     await cdp.waitFor(`!!document.querySelector(".presence") && !document.querySelector(".bar")`, { label: "mobile editor" });
@@ -634,6 +684,25 @@ async function openEditor() {
       appBar: !!document.querySelector(".bar"),
     }))()`);
     check("mobile editor has no horizontal overflow", mobileBefore.overflow <= 1 && !mobileBefore.appBar, JSON.stringify(mobileBefore));
+
+    const cornerGroup = await cdp.evaluate(`(() => {
+      const box = (selector) => {
+        const el = document.querySelector(selector);
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        return { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width) };
+      };
+      return { theme: box(".theme-toggle"), presence: box(".presence"), docked: !!document.querySelector(".top-actions.docked") };
+    })()`);
+    check(
+      "phone keeps the theme button and avatars in the visible corner",
+      cornerGroup.theme &&
+        cornerGroup.presence &&
+        !cornerGroup.docked &&
+        cornerGroup.theme.x + cornerGroup.theme.w <= 393 &&
+        cornerGroup.presence.x + cornerGroup.presence.w <= 393,
+      JSON.stringify(cornerGroup),
+    );
 
     const mobileOverlay = await cdp.evaluate(`(() => {
       const back = document.querySelector(".back-fab").getBoundingClientRect();
@@ -688,7 +757,7 @@ async function openEditor() {
     );
     check(
       "mobile presence falls back to its own corner pill",
-      mobilePresence.docked === false && mobilePresence.parent.includes("shell"),
+      mobilePresence.docked === false && mobilePresence.parent === "top-actions",
       JSON.stringify(mobilePresence),
     );
     check(

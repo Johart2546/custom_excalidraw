@@ -11,10 +11,20 @@ import { useCallback, useEffect, useRef } from "react";
 const SCENE_PAD = 24; // scene-px breathing room around the content bounds
 const INSET = 7; // css-px between the map drawing and the card edge
 const MAX_DPR = 2; // a 2x bitmap is plenty for a 200px-wide picture
-const ACCENT = "#6360d9"; // the app's accent, same as --accent
+const ACCENT = "#6360d9"; // fallback when the CSS variable cannot be read
 const FALLBACK_INK = "#868e96"; // elements that carry no usable colour
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/* The viewport frame follows the app accent, which changes with the theme. */
+function accentColor() {
+  try {
+    const value = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+    return HEX.test(value) ? value : ACCENT;
+  } catch {
+    return ACCENT;
+  }
+}
 
 /* Excalidraw stores colours as #rgb / #rrggbb or "transparent". */
 function tint(color, alpha) {
@@ -219,7 +229,7 @@ function paintElement(ctx, element, scale) {
   ctx.restore();
 }
 
-export default function Minimap({ apiRef, visible = true, folded = false, onToggle }) {
+export default function Minimap({ apiRef, theme, visible = true, folded = false, onToggle }) {
   const canvasRef = useRef(null);
   const zoomRef = useRef(null);
   const mapRef = useRef(null); // last transform, reused for pointer maths
@@ -277,8 +287,9 @@ export default function Minimap({ apiRef, visible = true, folded = false, onTogg
     const vw = Math.max(1, viewport.width * map.scale);
     const vh = Math.max(1, viewport.height * map.scale);
     ctx.save();
-    ctx.fillStyle = tint(ACCENT, 0.1) || "rgba(99, 96, 217, 0.1)";
-    ctx.strokeStyle = tint(ACCENT, 0.85) || ACCENT;
+    const accent = accentColor();
+    ctx.fillStyle = tint(accent, 0.12) || "rgba(99, 96, 217, 0.12)";
+    ctx.strokeStyle = tint(accent, 0.85) || accent;
     ctx.lineWidth = 1.4;
     ctx.beginPath();
     ctx.rect(vx, vy, vw, vh);
@@ -287,7 +298,7 @@ export default function Minimap({ apiRef, visible = true, folded = false, onTogg
     ctx.restore();
 
     if (zoomRef.current) zoomRef.current.textContent = `${Math.round((appState?.zoom?.value || 1) * 100)}%`;
-  }, [apiRef]);
+  }, [apiRef, theme]);
 
   /* Subscribe to the editor once its API ref exists, and redraw at most once
      per animation frame however chatty onChange is. */

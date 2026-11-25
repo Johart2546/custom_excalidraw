@@ -18,8 +18,73 @@
   --glass-line: rgba(255, 255, 255, 0.78);
   --blur: blur(20px) saturate(155%);
   --shadow: 0 12px 36px rgba(31, 36, 71, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  /* surfaces and their hover states, so a theme only swaps values */
+  --frost: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5));
+  --frost-soft: linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.4));
+  --frost-hover: rgba(255, 255, 255, 0.84);
+  --chip: rgba(255, 255, 255, 0.62);
+  --chip-soft: rgba(255, 255, 255, 0.48);
+  --ring: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --float-shadow: 0 12px 30px rgba(31, 36, 71, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  --avatar-edge: rgba(255, 255, 255, 0.94);
+  --island-bg: rgba(255, 255, 255, 0.72);
+  --popup-bg: rgba(255, 255, 255, 0.86);
+  --hover-tint: rgba(24, 24, 39, 0.1);
+  --canvas-bg: #ffffff;
+  --thumb-bg: #ffffff;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", sans-serif;
   font-size: 13px;
+}
+
+/* Dark mode: the same surfaces, turned down. The app writes data-theme on <html>
+   from the board's own theme, so every rule above keeps working unchanged. */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f0f16;
+  --surface: rgba(28, 29, 40, 0.66);
+  --panel: rgba(26, 27, 37, 0.82);
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.18);
+  --ink: #ececf5;
+  --muted: #a1a1b5;
+  --accent: #9d99ff;
+  --accent-soft: rgba(157, 153, 255, 0.18);
+  --ok: #4fd39a;
+  --bad: #ff7b7b;
+  --warn: #ffc062;
+  --glass: rgba(26, 27, 37, 0.62);
+  --glass-strong: rgba(26, 27, 37, 0.84);
+  --glass-line: rgba(255, 255, 255, 0.12);
+  --blur: blur(22px) saturate(140%);
+  --shadow: 0 12px 36px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --frost: linear-gradient(180deg, rgba(40, 42, 56, 0.92), rgba(24, 25, 35, 0.86));
+  --frost-soft: linear-gradient(180deg, rgba(40, 42, 56, 0.82), rgba(24, 25, 35, 0.72));
+  --frost-hover: rgba(255, 255, 255, 0.12);
+  --chip: rgba(255, 255, 255, 0.08);
+  --chip-soft: rgba(255, 255, 255, 0.05);
+  --ring: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --float-shadow: 0 12px 30px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --avatar-edge: rgba(16, 16, 24, 0.9);
+  --island-bg: rgba(31, 32, 44, 0.88);
+  --popup-bg: rgba(28, 29, 40, 0.95);
+  --hover-tint: rgba(255, 255, 255, 0.1);
+  --canvas-bg: #12121b;
+  --thumb-bg: #12121b;
+  --frost-fallback: rgba(20, 21, 31, 0.97);
+}
+
+html[data-theme="dark"] body {
+  background:
+    radial-gradient(900px 700px at 6% -8%, rgba(74, 88, 168, 0.5) 0%, transparent 62%),
+    radial-gradient(820px 640px at 102% -2%, rgba(150, 76, 122, 0.42) 0%, transparent 60%),
+    radial-gradient(920px 760px at 52% 112%, rgba(52, 128, 108, 0.4) 0%, transparent 62%),
+    radial-gradient(760px 560px at 26% 48%, rgba(96, 108, 176, 0.32) 0%, transparent 72%),
+    radial-gradient(760px 560px at 78% 62%, rgba(148, 96, 132, 0.28) 0%, transparent 72%),
+    var(--bg);
+}
+
+html[data-theme="dark"] .btn.primary {
+  color: #14141c;
 }
 
 * {
@@ -74,7 +139,7 @@ body {
     box-shadow 0.12s ease;
 }
 .icon-btn:hover {
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--frost-hover);
   box-shadow: inset 0 0 0 1px var(--glass-line);
   color: var(--ink);
 }
@@ -105,10 +170,10 @@ body {
   padding: 0 10px;
   border: 1px solid var(--glass-line);
   border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.38));
+  background: var(--frost-soft);
   backdrop-filter: var(--blur);
   -webkit-backdrop-filter: var(--blur);
-  box-shadow: 0 12px 30px rgba(31, 36, 71, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  box-shadow: var(--float-shadow);
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
@@ -121,6 +186,79 @@ body {
   display: inline-flex;
   align-items: center;
   flex: none;
+}
+
+/* The theme button and the presence pill travel together in the top-right corner. */
+.top-actions {
+  position: fixed;
+  top: 10px;
+  right: 12px;
+  z-index: 62;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.top-actions .presence {
+  position: static;
+}
+.top-actions.docked {
+  position: static;
+  z-index: auto;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: var(--frost);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--float-shadow);
+  color: var(--ink);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.theme-toggle:hover {
+  background: var(--frost-hover);
+  color: var(--accent);
+}
+.theme-toggle:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    var(--float-shadow);
+}
+.theme-toggle svg {
+  width: 17px;
+  height: 17px;
+}
+.top-actions.docked .theme-toggle {
+  width: 29px;
+  height: 29px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  color: var(--muted);
+}
+.top-actions.docked .theme-toggle:hover {
+  background: var(--chip);
+  color: var(--ink);
+}
+.top-actions.docked .theme-toggle svg {
+  width: 16px;
+  height: 16px;
 }
 .presence.docked {
   position: static;
@@ -154,7 +292,7 @@ body {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.94);
+  border: 2px solid var(--avatar-edge);
   box-shadow: 0 1px 3px rgba(31, 36, 71, 0.18);
   font-size: 10.5px;
   font-weight: 650;
@@ -166,7 +304,7 @@ body {
   margin-left: -8px;
 }
 .presence-more {
-  background: rgba(24, 24, 39, 0.1);
+  background: var(--hover-tint);
   color: var(--muted);
 }
 
@@ -218,8 +356,8 @@ body {
   padding: 6px 11px;
   border-radius: 8px;
   border: 1px solid var(--glass-line);
-  background: rgba(255, 255, 255, 0.58);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  background: var(--chip);
+  box-shadow: var(--ring);
   color: var(--ink);
   font: inherit;
   font-size: 12.5px;
@@ -231,7 +369,7 @@ body {
     box-shadow 0.12s ease;
 }
 .btn:hover {
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--frost-hover);
 }
 .btn:focus-visible {
   outline: 2px solid var(--accent);
@@ -273,14 +411,14 @@ body {
   border: 0;
   border-radius: 0;
   overflow: hidden;
-  background: #fff;
+  background: var(--canvas-bg);
   isolation: isolate;
 }
 
 /* Excalidraw's own floating islands get the same frosted treatment */
 .canvas .excalidraw {
-  --island-bg-color: rgba(255, 255, 255, 0.72);
-  --popup-bg-color: rgba(255, 255, 255, 0.86);
+  --island-bg-color: var(--island-bg);
+  --popup-bg-color: var(--popup-bg);
 }
 .canvas .excalidraw .Island {
   backdrop-filter: blur(14px) saturate(150%);
@@ -345,7 +483,7 @@ body {
 }
 .tools-grip:hover,
 .tools-fold:hover {
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--frost-hover);
   color: var(--ink);
 }
 .tools-grip:active {
@@ -418,7 +556,7 @@ body {
   padding: 0 11px 0 9px;
   border: 1px solid var(--glass-line);
   border-radius: 11px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5));
+  background: var(--frost);
   box-shadow: 0 10px 28px rgba(31, 36, 71, 0.14);
   color: var(--ink);
   font: inherit;
@@ -428,7 +566,7 @@ body {
   -webkit-backdrop-filter: var(--blur);
 }
 .tools-launcher:hover {
-  background: rgba(255, 255, 255, 0.84);
+  background: var(--frost-hover);
 }
 .tools-launcher:focus-visible {
   outline: 2px solid var(--accent);
@@ -448,7 +586,7 @@ body {
   height: 40px;
   border: 1px solid var(--glass-line);
   border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.48));
+  background: var(--frost);
   box-shadow: 0 10px 28px rgba(31, 36, 71, 0.14);
   color: var(--muted);
   text-decoration: none;
@@ -456,7 +594,7 @@ body {
   -webkit-backdrop-filter: var(--blur);
 }
 .back-fab:hover {
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--frost-hover);
   color: var(--ink);
 }
 .back-fab:focus-visible {
@@ -475,7 +613,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.54));
+  background: var(--frost);
   backdrop-filter: var(--blur);
   -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--glass-line);
@@ -533,7 +671,7 @@ body {
   padding: 6px 8px;
   border-radius: 8px;
   border: 1px solid var(--line-strong);
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--chip);
   color: var(--ink);
   font: inherit;
   font-size: 12.5px;
@@ -594,8 +732,8 @@ body {
   padding: 10px;
   border: 1px solid var(--glass-line);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.48);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  background: var(--chip-soft);
+  box-shadow: var(--ring);
 }
 .selected-grid .row {
   gap: 8px;
@@ -632,7 +770,7 @@ body {
   margin-top: -5px;
   border-radius: 50%;
   border: 2px solid var(--accent);
-  background: #fff;
+  background: var(--thumb-bg);
   box-shadow: 0 1px 2px rgba(24, 24, 31, 0.18);
 }
 .grid-sizing .size-slider::-moz-range-track {
@@ -645,7 +783,7 @@ body {
   height: 12px;
   border-radius: 50%;
   border: 2px solid var(--accent);
-  background: #fff;
+  background: var(--thumb-bg);
 }
 .grid-sizing .size-slider:disabled {
   opacity: 0.45;
@@ -703,10 +841,10 @@ code {
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .presence,
   .panel {
-    background: rgba(250, 251, 255, 0.96);
+    background: var(--frost-fallback, rgba(250, 251, 255, 0.96));
   }
   .canvas {
-    background: #fff;
+    background: var(--canvas-bg);
   }
 }
 
@@ -761,7 +899,7 @@ code {
   z-index: 5;
   border: 1px solid var(--glass-line);
   border-radius: 9px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.56));
+  background: var(--frost);
   backdrop-filter: var(--blur);
   -webkit-backdrop-filter: var(--blur);
   box-shadow: var(--shadow);
@@ -848,7 +986,7 @@ code {
   padding: 0;
   border: 1px solid var(--glass-line);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--frost-hover);
   color: var(--muted);
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(23, 25, 46, 0.12);
@@ -857,7 +995,7 @@ code {
     color 0.12s ease;
 }
 .minimap-fold:hover {
-  background: #fff;
+  background: var(--frost-hover);
   color: var(--ink);
 }
 .minimap-fold:focus-visible {
@@ -876,7 +1014,7 @@ code {
   padding: 0 11px 0 9px;
   border: 1px solid var(--glass-line);
   border-radius: 11px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.6));
+  background: var(--frost);
   backdrop-filter: var(--blur);
   -webkit-backdrop-filter: var(--blur);
   box-shadow: var(--shadow);
@@ -890,7 +1028,7 @@ code {
 }
 .minimap-pill:hover {
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--frost-hover);
 }
 .minimap-pill:focus-visible {
   outline: 2px solid var(--accent);
