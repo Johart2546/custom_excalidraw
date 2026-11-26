@@ -265,9 +265,12 @@ function createStub(siteDir, slugs) {
         res.end(readFileSync(path.join(siteDir, "index.html")));
         return;
       }
-      if (req.method === "GET" && pathname === "/favicon.svg") {
-        res.writeHead(200, { "content-type": "image/svg+xml" });
-        res.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#6360d9"/></svg>');
+      if (req.method === "GET" && /^\/gallery\/logo-\d+\.png$/.test(pathname)) {
+        // the brand marks the real catalogue copies into its site folder
+        const file = path.join(siteDir, path.basename(pathname));
+        if (!existsSync(file)) return json(res, 404, { error: "no logo" });
+        res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store" });
+        res.end(readFileSync(file));
         return;
       }
       if (req.method === "GET" && pathname.startsWith("/gallery/thumbs/")) {

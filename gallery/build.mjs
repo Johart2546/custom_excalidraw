@@ -54,6 +54,10 @@ const SCENES = resolve(process.env.SCENES_DIR || join(HERE, "scenes"));
 const SITE = resolve(process.env.SITE_DIR || join(HERE, "site"));
 const THUMBS = join(SITE, "thumbs");
 const OUT_SCENES = join(SITE, "scenes");
+/* The brand marks live in the repo so both the SPA and this catalogue can use
+   them; copied into the site on every build because the site is disposable. */
+const LOGO_DIR = resolve(process.env.LOGO_DIR || join(ROOT, "assets", "logo"));
+const LOGO_FILES = ["logo-32.png", "logo-64.png", "logo-180.png"];
 
 const CLI = process.env.EXCALIDRAW_BIN || "excalidraw";
 const FORCE = process.argv.includes("--force");
@@ -370,7 +374,9 @@ function renderPage(entries, generatedAt) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" type="image/png" sizes="32x32" href="/gallery/logo-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/gallery/logo-180.png">
+<meta name="theme-color" content="#f4f6ff">
 <title>Excalidraw boards</title>
 <script>
 /* Runs before the first paint so a dark-theme visitor never sees the light page
@@ -543,6 +549,10 @@ try {
   }
   .top { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
   h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.3px; }
+  .brand {
+    width: 30px; height: 30px; flex: none; border-radius: 9px;
+    background: #fff; box-shadow: 0 2px 8px rgba(31, 36, 71, .18), 0 0 0 1px var(--glass-line);
+  }
   .count { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
   .grow { flex: 1; }
   input[type="search"], select.card-group {
@@ -814,6 +824,7 @@ try {
 <body>
 <header>
   <div class="top">
+    <img class="brand" src="/gallery/logo-64.png" alt="" width="30" height="30" decoding="async">
     <h1>Boards</h1>
     <span class="count" id="count">${entries.length} board${entries.length === 1 ? "" : "s"}</span>
     <span class="grow"></span>
@@ -1910,6 +1921,10 @@ ${entries.length === 0 ? '<p class="empty" id="no-boards">ยังไม่ม�
 async function main() {
   mkdirSync(THUMBS, { recursive: true });
   mkdirSync(OUT_SCENES, { recursive: true });
+  for (const name of LOGO_FILES) {
+    const from = join(LOGO_DIR, name);
+    if (existsSync(from)) copyFileSync(from, join(SITE, name));
+  }
 
   const scenes = collectScenes();
   if (scenes.length === 0) {

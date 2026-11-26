@@ -1087,6 +1087,27 @@ async function openEditor() {
       };
     })()`);
     check("catalog has glass header", /blur/.test(catalogGlass.headerBlur || ""), catalogGlass.headerBlur);
+    const catalogBrand = await cdp.evaluate(`(() => {
+      const img = document.querySelector("header img.brand");
+      const icon = document.querySelector('link[rel="icon"]');
+      const touch = document.querySelector('link[rel="apple-touch-icon"]');
+      const title = document.querySelector("header h1");
+      return {
+        src: img?.getAttribute("src") || null,
+        loaded: img?.naturalWidth || 0,
+        left: img ? Math.round(img.getBoundingClientRect().left) : null,
+        titleLeft: title ? Math.round(title.getBoundingClientRect().left) : null,
+        icon: icon?.getAttribute("href") || null,
+        touch: touch?.getAttribute("href") || null,
+      };
+    })()`);
+    check(
+      "the catalog wears the app logo and tab icon",
+      catalogBrand.loaded >= 64 && catalogBrand.src === "/gallery/logo-64.png" &&
+        catalogBrand.left < catalogBrand.titleLeft &&
+        catalogBrand.icon === "/gallery/logo-32.png" && catalogBrand.touch === "/gallery/logo-180.png",
+      JSON.stringify(catalogBrand),
+    );
     // the catalogue follows the saved theme, so frost means "blur + translucent gradient" in either palette
     const cardAlpha = (() => {
       const match = /rgba?\(([^)]+)\)/.exec(catalogGlass.cardBg || "");
