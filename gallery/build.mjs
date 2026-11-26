@@ -311,6 +311,8 @@ function renderPage(entries, generatedAt) {
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/></svg>';
   const ICON_PENCIL =
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/></svg>';
+  const ICON_CHEVRON =
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg>';
 
   const cards = entries
     .map((entry) => {
@@ -617,6 +619,19 @@ try {
   .sect-head h2 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .1px; }
   .sect-count { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
   .sect-head h2 + .sect-count { margin-right: 2px; }
+  /* หมวดหุบ/กางได้: ลูกศรหมุน 90° แล้วกริดของหมวดนั้นซ่อน แต่หัวข้อยังอยู่ */
+  .sect-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 21px; height: 21px; padding: 0; margin-left: -3px; border-radius: 6px;
+    border: 1px solid transparent; background: transparent; color: var(--muted);
+    cursor: pointer; transition: transform .16s ease, background .12s ease, color .12s ease;
+  }
+  .sect-toggle:hover { background: var(--chip-bg-hover); color: var(--ink); }
+  .sect-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .board-section[data-collapsed="1"] .sect-toggle { transform: rotate(-90deg); }
+  .board-section[data-collapsed="1"] .grid { display: none; }
+  /* การค้นหาต้องโชว์ของที่เจอเสมอ แม้หมวดนั้นจะถูกหุบไว้ */
+  #sections.searching .board-section[data-collapsed="1"] .grid { display: grid; }
   .sect-btn {
     font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer; border-radius: 7px;
     border: 1px solid var(--line-strong); background: var(--ghost-bg); color: var(--muted);
@@ -701,6 +716,9 @@ try {
     #theme-toggle { order: 2; margin-left: auto; }
     .app-link { order: 3; }
     input[type="search"] { order: 4; flex: 1 1 100%; width: 100%; }
+  }
+  @media (max-width: 560px) {
+    .sect-toggle { width: 26px; height: 26px; margin-left: -5px; }
   }
   @media (max-width: 420px) {
     .iconbtn.rename span, .iconbtn.danger span { display: none; }
@@ -893,6 +911,7 @@ ${entries.length === 0 ? '<p class="empty" id="no-boards">ยังไม่ม�
     download: ${JSON.stringify(ICON_DOWNLOAD)},
     trash: ${JSON.stringify(ICON_TRASH)},
     pencil: ${JSON.stringify(ICON_PENCIL)},
+    chevron: ${JSON.stringify(ICON_CHEVRON)},
   };
   const COLORS = ["violet", "blue", "teal", "amber", "rose", "slate"];
   const NONE_KEY = "__none__";
@@ -902,6 +921,48 @@ ${entries.length === 0 ? '<p class="empty" id="no-boards">ยังไม่ม�
   // board slug -> group id ("" = ไม่มีหมวดหมู่). /api/groups + /api/boards/:id/meta win
   // over the data-group hint the build wrote into each card.
   const membership = new Map();
+
+  /* ซึ่งหมวดที่ผู้ใช้หุบไว้ — จำใน localStorage เพื่อให้เปิดหน้ามาแล้วยังหุบอยู่ */
+  const COLLAPSE_KEY = "boards-collapsed";
+  const collapsed = (() => {
+    try {
+      const raw = JSON.parse(window.localStorage.getItem(COLLAPSE_KEY) || "[]");
+      return new Set(Array.isArray(raw) ? raw.filter((key) => typeof key === "string") : []);
+    } catch (error) {
+      return new Set();
+    }
+  })();
+
+  function saveCollapsed() {
+    try {
+      window.localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...collapsed]));
+    } catch (error) {
+      /* private mode: ยังหุบ/กางได้ในหน้านี้ */
+    }
+  }
+
+  function collapsedNow(section) {
+    return collapsed.has(section.dataset.group);
+  }
+
+  function applyCollapsed(section) {
+    const on = collapsedNow(section);
+    section.dataset.collapsed = on ? "1" : "0";
+    const toggle = section.querySelector(".sect-toggle");
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", on ? "false" : "true");
+      toggle.title = on ? "กางหมวดนี้" : "หุบหมวดนี้";
+      toggle.setAttribute("aria-label", (on ? "กางหมวด " : "หุบหมวด ") + (section.dataset.name || ""));
+    }
+  }
+
+  function toggleSection(section) {
+    const key = section.dataset.group;
+    if (collapsed.has(key)) collapsed.delete(key);
+    else collapsed.add(key);
+    saveCollapsed();
+    applyCollapsed(section);
+  }
 
   function safeId(id) {
     return window.CSS && CSS.escape ? CSS.escape(String(id)) : String(id).replace(/"/g, '\\"');
@@ -977,13 +1038,15 @@ ${entries.length === 0 ? '<p class="empty" id="no-boards">ยังไม่ม�
       const section = document.createElement("section");
       section.className = "board-section";
       section.dataset.group = key;
+      const label = group ? group.name : "ไม่มีหมวดหมู่";
+      section.dataset.name = label;
       if (groups.length) {
         const head = document.createElement("div");
         head.className = "sect-head";
         head.appendChild(dotFor(group ? group.color : "slate"));
         const name = document.createElement("h2");
         name.className = "sect-name";
-        name.textContent = group ? group.name : "ไม่มีหมวดหมู่";
+        name.textContent = label;
         head.appendChild(name);
         const total = document.createElement("span");
         total.className = "sect-count";
@@ -1007,12 +1070,26 @@ ${entries.length === 0 ? '<p class="empty" id="no-boards">ยังไม่ม�
           del.setAttribute("aria-label", "ลบหมวด " + group.name);
           head.appendChild(del);
         }
+        const toggle = document.createElement("button");
+        toggle.className = "sect-toggle";
+        toggle.type = "button";
+        toggle.dataset.act = "section-toggle";
+        toggle.dataset.group = key;
+        toggle.setAttribute("aria-expanded", "true");
+        toggle.title = "หุบหมวดนี้";
+        toggle.setAttribute("aria-label", "หุบหมวด " + label);
+        toggle.innerHTML = ICONS.chevron;
+        head.prepend(toggle);
         section.appendChild(head);
       }
       const gridBox = document.createElement("div");
       gridBox.className = "grid";
+      gridBox.id = "grid-" + key;
+      const headToggle = section.querySelector(".sect-toggle");
+      if (headToggle) headToggle.setAttribute("aria-controls", gridBox.id);
       for (const card of buckets.get(key)) gridBox.appendChild(card);
       section.appendChild(gridBox);
+      applyCollapsed(section);
       frag.appendChild(section);
     }
     let box = document.getElementById("sections");
@@ -1082,6 +1159,9 @@ ${entries.length === 0 ? '<p class="empty" id="no-boards">ยังไม่ม�
   function applyFilter() {
     const all = cards();
     const needle = q.value.trim().toLowerCase();
+    // ค้นหาต้องกางให้เห็นของที่เจอ — ปล่อยว่างแล้วกลับไปหุบตามที่ตั้งไว้
+    const sectionsBox = document.getElementById("sections");
+    if (sectionsBox) sectionsBox.classList.toggle("searching", Boolean(needle));
     let shown = 0;
     for (const card of all) {
       const hit = !needle || (card.dataset.search || "").includes(needle);
@@ -1688,6 +1768,12 @@ ${entries.length === 0 ? '<p class="empty" id="no-boards">ยังไม่ม�
   boardsEl.addEventListener("click", (event) => {
     const target = event.target;
     const sect = target.closest && target.closest("[data-act]");
+    if (sect && sect.dataset.act === "section-toggle") {
+      event.preventDefault();
+      const section = sect.closest(".board-section");
+      if (section) toggleSection(section);
+      return;
+    }
     if (sect && sect.dataset.act) {
       const group = groupById(sect.dataset.group);
       if (!group) return;

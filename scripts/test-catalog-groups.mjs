@@ -1059,6 +1059,96 @@ async function main() {
     await cdp.backspace(4);
     await cdp.waitFor(`document.getElementById("count").textContent.trim() === "3 กระดาน"`, { label: "search cleared again" });
 
+    /* --- 10b. collapsible sections -------------------------------------- */
+    const headings = await cdp.evaluate(`[...document.querySelectorAll(".board-section")].map((section) => ({
+      group: section.dataset.group,
+      collapsed: section.dataset.collapsed,
+      toggles: section.querySelectorAll(".sect-toggle").length,
+      expanded: section.querySelector(".sect-toggle")?.getAttribute("aria-expanded"),
+      label: section.querySelector(".sect-toggle")?.getAttribute("aria-label"),
+      grid: getComputedStyle(section.querySelector(".grid")).display,
+      count: section.querySelector(".sect-count")?.textContent,
+    }))`);
+    check(
+      "every group heading carries one collapse chevron",
+      headings.length === 3 && headings.every((row) => row.toggles === 1 && row.collapsed === "0" && row.grid === "grid"),
+      JSON.stringify(headings.map((row) => [row.group, row.toggles, row.collapsed, row.grid])),
+    );
+    check(
+      "the chevron is announced in Thai and starts expanded",
+      headings.every((row) => /^หุบหมวด /.test(row.label || "") && row.expanded === "true"),
+      JSON.stringify(headings.map((row) => row.label)),
+    );
+
+    const foldTarget = headings.find((row) => row.group === G1) || headings[0];
+    await cdp.click(`.board-section[data-group="${foldTarget.group}"] .sect-toggle`);
+    await cdp.waitFor(
+      `document.querySelector('.board-section[data-group="${foldTarget.group}"]').dataset.collapsed === "1"`,
+      { label: "section folded" },
+    );
+    const folded = await cdp.evaluate(`(() => {
+      const section = document.querySelector('.board-section[data-group="${foldTarget.group}"]');
+      return {
+        grid: getComputedStyle(section.querySelector(".grid")).display,
+        expanded: section.querySelector(".sect-toggle").getAttribute("aria-expanded"),
+        title: section.querySelector(".sect-toggle").getAttribute("title"),
+        head: section.querySelector(".sect-head").getBoundingClientRect().height,
+        count: section.querySelector(".sect-count").textContent,
+        others: [...document.querySelectorAll(".board-section")].filter((other) => other !== section).map((other) => getComputedStyle(other.querySelector(".grid")).display),
+        stored: localStorage.getItem("boards-collapsed"),
+      };
+    })()`);
+    check(
+      "a click folds that heading away but keeps it, with its count",
+      folded.grid === "none" && folded.expanded === "false" && folded.head > 0 && folded.count.length > 0,
+      JSON.stringify(folded),
+    );
+    check(
+      "the other headings stay open and the fold is remembered",
+      folded.others.every((display) => display === "grid") && (folded.stored || "").includes(foldTarget.group),
+      `${JSON.stringify(folded.others)} · ${folded.stored}`,
+    );
+
+    // searching must show the hits even inside a folded heading
+    await cdp.click("#q");
+    await cdp.type("alpha");
+    await cdp.waitFor(`document.getElementById("count").textContent.trim() === "1 จาก 3"`, { label: "search inside folded" });
+    const revealed = await cdp.evaluate(`(() => {
+      const section = document.querySelector('.board-section[data-group="${foldTarget.group}"]');
+      return {
+        searching: document.getElementById("sections").classList.contains("searching"),
+        grid: getComputedStyle(section.querySelector(".grid")).display,
+        hits: [...section.querySelectorAll(".card")].filter((card) => !card.hidden).length,
+      };
+    })()`);
+    check(
+      "a search opens a folded heading to show what it matched",
+      revealed.searching === true && revealed.grid === "grid" && revealed.hits === 1,
+      JSON.stringify(revealed),
+    );
+    await cdp.backspace(5);
+    await cdp.waitFor(`document.getElementById("count").textContent.trim() === "3 กระดาน"`, { label: "search cleared after fold" });
+    check(
+      "clearing the search folds the heading back",
+      (await cdp.evaluate(`getComputedStyle(document.querySelector('.board-section[data-group="${foldTarget.group}"]').querySelector(".grid")).display`)) === "none",
+      "grid display none",
+    );
+
+    await cdp.reload();
+    await waitSettled(`${G1}:1|${G2}:0|__none__:2`, "sections after folded reload");
+    check(
+      "the fold survives a reload",
+      (await cdp.evaluate(`getComputedStyle(document.querySelector('.board-section[data-group="${foldTarget.group}"]').querySelector(".grid")).display`)) === "none",
+      "still folded after reload",
+    );
+    await cdp.click(`.board-section[data-group="${foldTarget.group}"] .sect-toggle`);
+    await cdp.waitFor(`!localStorage.getItem("boards-collapsed") || !JSON.parse(localStorage.getItem("boards-collapsed")).includes("${foldTarget.group}")`, { label: "section reopened" });
+    check(
+      "clicking again opens it and forgets the fold",
+      (await cdp.evaluate(`getComputedStyle(document.querySelector('.board-section[data-group="${foldTarget.group}"]').querySelector(".grid")).display`)) === "grid",
+      "grid display grid",
+    );
+
     /* --- 11. theme ------------------------------------------------------ */
     const lightTheme = await cdp.evaluate(`({
       theme: document.documentElement.getAttribute("data-theme"),
