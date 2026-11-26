@@ -629,6 +629,52 @@ async function openEditor() {
       (await cdp.evaluate(`document.querySelector(".tools-table").classList.contains("active")`)) === false,
     );
 
+    /* -------------------------------------------------------- save status */
+    const pillSaved = await cdp.waitFor(
+      `document.querySelector(".save-pill")?.classList.contains("saved") === true`,
+      { label: "save pill settles on saved" },
+    );
+    const pill = await cdp.evaluate(`(() => {
+      const el = document.querySelector(".save-pill");
+      const rect = el.getBoundingClientRect();
+      return {
+        text: el.querySelector(".save-text")?.textContent || "",
+        time: el.querySelector(".save-time")?.textContent || "",
+        label: el.getAttribute("aria-label"),
+        live: el.getAttribute("aria-live"),
+        disabled: el.disabled,
+        right: Math.round(rect.right),
+        top: Math.round(rect.top),
+        viewport: window.innerWidth,
+      };
+    })()`);
+    check(
+      "the board says when it was last saved",
+      pillSaved && /^บันทึกแล้ว$/.test(pill.text) && /^\d{2}:\d{2}$/.test(pill.time),
+      JSON.stringify(pill),
+    );
+    check(
+      "the save pill is announced and not clickable while saved",
+      pill.live === "polite" && /บันทึกแล้วเมื่อ/.test(pill.label || "") && pill.disabled === true,
+      `${pill.live} / ${pill.label} / disabled=${pill.disabled}`,
+    );
+    check(
+      "the save pill sits in the top-right band, left of Excalidraw's own buttons",
+      pill.right > pill.viewport / 2 && pill.top < 60,
+      JSON.stringify(pill),
+    );
+    const pillSaving = await cdp.evaluate(`(() => {
+      const api = window.__boardsApi;
+      const el = api.getSceneElements()[0];
+      if (!el) return "no element";
+      api.updateScene({ elements: api.getSceneElementsIncludingDeleted().map((x) => x), appState: { scrollX: api.getAppState().scrollX + 3 } });
+      return "queued";
+    })()`);
+    await cdp.waitFor(`document.querySelector(".save-pill")?.classList.contains("saved") === true`, {
+      label: "save settles after the nudge",
+    });
+    check("a nudge settles back to saved", pillSaving === "queued", pillSaving);
+
     /* -------------------------------------------------------------- theme */
     const themeLight = await cdp.evaluate(`(() => {
       const toggle = document.querySelector(".theme-toggle");

@@ -180,6 +180,63 @@ body {
   user-select: none;
 }
 
+/* Save status: a quiet pill in the top-right corner that says whether the board
+   on disk matches the canvas. Green dot = saved, amber pulse = in flight,
+   red = the write failed and a click retries it. */
+.save-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 13px 0 11px;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: var(--frost-soft);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--float-shadow);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: default;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.save-pill.saving { color: var(--ink); }
+.save-pill.error {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 42%, transparent);
+  cursor: pointer;
+}
+.save-pill.error:hover { background: var(--frost); }
+.save-pill:disabled { cursor: default; }
+.save-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.save-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 20%, transparent);
+  flex: none;
+}
+.save-pill.saving .save-dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 22%, transparent);
+  animation: save-pulse 1s ease-in-out infinite;
+}
+.save-pill.error .save-dot {
+  background: var(--bad);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad) 22%, transparent);
+}
+.save-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+@keyframes save-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .save-pill.saving .save-dot { animation: none; }
+}
+
 /* Docked: the stack rides in Excalidraw's own top-right menu row, right before
    the Library button, and borrows that row's height instead of a pill. */
 .presence-slot {
@@ -207,6 +264,7 @@ body {
   gap: 6px;
   pointer-events: auto;
 }
+.top-actions.docked .save-pill { height: 29px; padding: 0 10px 0 9px; gap: 6px; font-size: 11.5px; border-radius: 10px; }
 
 .theme-toggle {
   display: inline-flex;
@@ -887,6 +945,8 @@ code {
     padding-right: 0;
     font-size: 11px;
   }
+  .save-pill { height: 38px; padding: 0 10px 0 9px; font-size: 11px; gap: 5px; }
+  .save-pill .save-time { display: none; }
 }
 
 /* Minimap: a live miniature of the board, in the bottom-left corner above the

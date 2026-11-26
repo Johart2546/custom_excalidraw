@@ -298,6 +298,8 @@ export default function App() {
   // DOM slot inside Excalidraw's top-right menu row (next to Library), when that
   // row exists. Phones have no such row, so the stack falls back to the corner.
   const [presenceHost, setPresenceHost] = useState(null);
+  // "saved" | "saving" | "error": the pill in the top-right corner tells the board's save state
+  const [saveState, setSaveState] = useState({ kind: "saved", at: 0 });
   // the html element carries the theme so the page chrome and the canvas agree
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -319,6 +321,9 @@ export default function App() {
   const lastSentRef = useRef(null);
   const timerRef = useRef(0);
   const armedAtRef = useRef(0);
+  const armReplayRef = useRef(null); // an edit that arrived before the board was armed
+  const armTimerRef = useRef(0);
+  const onChangeRef = useRef(null);
   const remoteRef = useRef(null);
   const remoteTimerRef = useRef(0);
   const goneRef = useRef(false);
@@ -377,6 +382,7 @@ export default function App() {
       const loadedTitle = typeof meta?.title === "string" && meta.title.trim() ? meta.title : boardId;
       armedAtRef.current = Date.now() + ARM_DELAY;
       lastSavedRef.current = payloadFor(data.elements || [], data.appState || {}, data.files || {});
+      setSaveState({ kind: "saved", at: Date.now() });
       setTitle(loadedTitle);
       // a board that stored a theme keeps it; one that never did follows the
       // last choice made in this browser
@@ -740,8 +746,10 @@ export default function App() {
       if (!res.ok) throw new Error(await res.text());
       lastSavedRef.current = body;
       if (pendingRef.current === body) pendingRef.current = null;
+      setSaveState({ kind: "saved", at: Date.now() });
     } catch (error) {
       console.error("[save]", error);
+      setSaveState({ kind: "error", at: Date.now() });
     }
   }, [boardId]);
 
@@ -769,10 +777,13 @@ export default function App() {
       if (body === lastSavedRef.current || body === lastSentRef.current) {
         if (body === lastSavedRef.current) {
           pendingRef.current = null;
+          // an undone edit can land back on exactly what is on disk
+          setSaveState((state) => (state.kind === "saving" ? { kind: "saved", at: state.at || Date.now() } : state));
         }
         return;
       }
       pendingRef.current = body;
+      setSaveState((state) => (state.kind === "saving" ? state : { kind: "saving", at: state.at }));
       window.clearTimeout(timerRef.current);
       const ws = wsRef.current;
       // a hidden tab has its timers throttled to about one tick a second, so a
@@ -795,6 +806,16 @@ export default function App() {
     if (!api || goneRef.current) return;
     queueSave(api.getSceneElements(), { ...api.getAppState(), theme: next }, api.getFiles());
   }, [theme, queueSave]);
+
+  /** A failed save leaves the pill clickable: send the current scene again. */
+  const retrySave = useCallback(() => {
+    if (saveState.kind === "saving") return;
+    const api = apiRef.current;
+    if (!api || goneRef.current) return;
+    lastSentRef.current = null;
+    pendingRef.current = null;
+    queueSave(api.getSceneElements(), api.getAppState(), api.getFiles());
+  }, [queueSave, saveState.kind]);
 
   /** Everything the table panel needs to know about one grid. */
   const describeGrid = useCallback((elements, gridId) => {
@@ -851,7 +872,25 @@ export default function App() {
       }
       setSelectedGrid((prev) => (sameGridInfo(prev, hit) ? prev : hit));
 
-      if (Date.now() < armedAtRef.current) return;
+      if (Date.now() < armedAtRef.current) {
+        // The burst that follows a load is Excalidraw restoring what the file
+        // already holds: identical body, nothing to write, and the pill must not
+        // pretend otherwise.
+        const early = payloadFor(elements, appState, files);
+        if (early === lastSavedRef.current || early === lastSentRef.current) return;
+        // An edit can also land before the board is armed. Dropping it left the
+        // canvas changed while the pill said "saved"; keep the newest and replay
+        // it once arming is done.
+        armReplayRef.current = { elements, appState, files };
+        window.clearTimeout(armTimerRef.current);
+        armTimerRef.current = window.setTimeout(() => {
+          const replay = armReplayRef.current;
+          armReplayRef.current = null;
+          if (replay && !goneRef.current) onChangeRef.current?.(replay.elements, replay.appState, replay.files);
+        }, Math.max(30, armedAtRef.current - Date.now() + 40));
+        setSaveState((state) => (state.kind === "saving" ? state : { kind: "saving", at: state.at }));
+        return;
+      }
 
       // Text typed into a cell arrives at whatever size the editor used, and
       // Excalidraw grows the container it is bound to when the text does not fit,
@@ -889,6 +928,11 @@ export default function App() {
     },
     [describeGrid, queueSave],
   );
+
+  // the arming timer outlives the render that scheduled it, so it calls through a ref
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   // flush on hide (covers tab close / switching away far more reliably than unload)
   useEffect(() => {
@@ -1024,7 +1068,11 @@ export default function App() {
         } else if (message.type === "saved") {
           if (lastSentRef.current) lastSavedRef.current = lastSentRef.current;
           pendingRef.current = null;
+          setSaveState({ kind: "saved", at: Date.now() });
         } else if (message.type === "save-failed") {
+          // keep nothing "in flight" so the retry can send the same scene again
+          lastSentRef.current = null;
+          setSaveState({ kind: "error", at: Date.now() });
         } else if (message.type === "deleted") {
           // do not let a pending flush PUT the file straight back
           goneRef.current = true;
@@ -1440,6 +1488,36 @@ export default function App() {
         ? "กำลังเชื่อมต่อกับกระดานนี้"
         : "ออฟไลน์";
 
+  const savedTime = saveState.at
+    ? new Date(saveState.at).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })
+    : "";
+  const saveLabel =
+    saveState.kind === "saving"
+      ? "กำลังบันทึกการเปลี่ยนแปลง"
+      : saveState.kind === "error"
+        ? "บันทึกไม่สำเร็จ กดเพื่อลองใหม่"
+        : savedTime
+          ? `บันทึกแล้วเมื่อ ${savedTime}`
+          : "บันทึกแล้ว";
+  const savePill = (
+    <button
+      type="button"
+      className={`save-pill ${saveState.kind}`}
+      onClick={retrySave}
+      aria-live="polite"
+      aria-label={saveLabel}
+      title={saveLabel}
+      // status, not a control: only a failed save offers the retry
+      disabled={saveState.kind !== "error"}
+    >
+      <span className="save-dot" aria-hidden="true" />
+      <span className="save-text">
+        {saveState.kind === "saving" ? "กำลังบันทึก…" : saveState.kind === "error" ? "บันทึกไม่สำเร็จ" : "บันทึกแล้ว"}
+      </span>
+      {saveState.kind === "saved" && savedTime ? <span className="save-time">{savedTime}</span> : null}
+    </button>
+  );
+
   const themeButton = (
     <button
       type="button"
@@ -1495,6 +1573,7 @@ export default function App() {
       {presenceHost ? (
         createPortal(
           <span className="top-actions docked">
+            {savePill}
             {themeButton}
             {presenceNode}
           </span>,
@@ -1502,6 +1581,7 @@ export default function App() {
         )
       ) : (
         <span className="top-actions">
+          {savePill}
           {themeButton}
           {presenceNode}
         </span>
