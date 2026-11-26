@@ -108,6 +108,33 @@ function avatarInk(hex) {
   return luma > 168 ? "#23232b" : "#ffffff";
 }
 
+/**
+ * The parts of a scene that a reader would call "the same picture".
+ * Excalidraw bumps `version`/`versionNonce`/`updated` on elements whenever it
+ * rewrites them — including when it merely applies what a peer sent — so two
+ * boards can look identical yet keep writing each other's bytes forever.
+ */
+const VOLATILE_KEYS = ["version", "versionNonce", "updated"];
+let stableCache = { body: "", stable: "" };
+function stableOf(body) {
+  if (!body) return "";
+  if (stableCache.body === body) return stableCache.stable;
+  let stable = body;
+  try {
+    const scene = JSON.parse(body);
+    scene.elements = (scene.elements || []).map((el) => {
+      const copy = { ...el };
+      for (const key of VOLATILE_KEYS) delete copy[key];
+      return copy;
+    });
+    stable = JSON.stringify(scene);
+  } catch {
+    stable = body;
+  }
+  stableCache = { body, stable };
+  return stable;
+}
+
 function payloadFor(elements, appState, files) {
   const picked = {};
   for (const key of SAVE_APP_STATE) {
@@ -782,6 +809,14 @@ export default function App() {
         }
         return;
       }
+      // Same picture, only books bumped: writing it would push the peer to bump
+      // theirs and the two boards would trade the file forever.
+      if (lastSavedRef.current && stableOf(body) === stableOf(lastSavedRef.current)) {
+        pendingRef.current = null;
+        lastSavedRef.current = body;
+        setSaveState((state) => (state.kind === "saved" ? state : { kind: "saved", at: state.at || Date.now() }));
+        return;
+      }
       pendingRef.current = body;
       setSaveState((state) => (state.kind === "saving" ? state : { kind: "saving", at: state.at }));
       window.clearTimeout(timerRef.current);
@@ -808,6 +843,18 @@ export default function App() {
   }, [theme, queueSave]);
 
   /** A failed save leaves the pill clickable: send the current scene again. */
+  // Nothing can be in flight here, so a pill stuck on "saving" would be wrong:
+  // that happens when a dropped queue entry takes its timer with it.
+  useEffect(() => {
+    if (saveState.kind !== "saving") return undefined;
+    const timer = window.setTimeout(() => {
+      if (!pendingRef.current && !lastSentRef.current) {
+        setSaveState((state) => (state.kind === "saving" ? { kind: "saved", at: state.at || Date.now() } : state));
+      }
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [saveState.kind, saveState.at]);
+
   const retrySave = useCallback(() => {
     if (saveState.kind === "saving") return;
     const api = apiRef.current;
@@ -998,6 +1045,11 @@ export default function App() {
     const body = payloadFor(full, api.getAppState(), api.getFiles());
     window.clearTimeout(timerRef.current);
     pendingRef.current = null;
+    // a queued write was just dropped; if what we now hold is what the file says,
+    // say so instead of leaving the pill claiming a save that will never happen
+    if (body === lastSavedRef.current || (lastSavedRef.current && stableOf(body) === stableOf(lastSavedRef.current))) {
+      setSaveState((state) => (state.kind === "saving" ? { kind: "saved", at: Date.now() } : state));
+    }
 
     if (merged.extra) {
       // the file on disk is the sender's scene, which lacks what we drew while
@@ -1011,6 +1063,8 @@ export default function App() {
       // applies them, so both sides would otherwise look dirty forever.
       lastSavedRef.current = body;
       lastSentRef.current = body;
+      // the queued save was dropped just above: the pill must not stay "saving"
+      setSaveState((state) => (state.kind === "saving" ? { kind: "saved", at: Date.now() } : state));
     }
   }, [forgetResizeDrag, queueSave]);
 
