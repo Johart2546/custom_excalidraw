@@ -526,26 +526,36 @@ body {
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 17px;
+  width: 20px;
   height: 27px;
   padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
-  cursor: grab;
   touch-action: none;
 }
+/* the grip is the whole affordance for moving the island, so say so with the
+   cursor and give it a little more width than the dots it draws */
 .tools-grip {
   margin-right: 1px;
+}
+/* Excalidraw paints its own `cursor: pointer` on the row's children, so the
+   grab cursor has to out-specify it, not merely be inherited. */
+.canvas .excalidraw .App-toolbar.tools-floating .tools-grip {
+  cursor: grab;
+}
+.canvas .excalidraw .App-toolbar.tools-floating .tools-grip:active {
+  cursor: grabbing;
+}
+.tools-fold {
+  margin-left: 1px;
+  cursor: pointer;
 }
 .tools-grip:hover,
 .tools-fold:hover {
   background: var(--frost-hover);
   color: var(--ink);
-}
-.tools-grip:active {
-  cursor: grabbing;
 }
 .tools-grip:focus-visible,
 .tools-fold:focus-visible {

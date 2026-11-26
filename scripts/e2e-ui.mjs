@@ -179,6 +179,22 @@ class CDP {
     return box;
   }
 
+  async dragPoint(x, y, dx, dy) {
+    await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 });
+    await this.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
+    for (let step = 1; step <= 6; step += 1) {
+      await this.send("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: x + (dx * step) / 6,
+        y: y + (dy * step) / 6,
+        button: "left",
+        buttons: 1,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    await this.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: x + dx, y: y + dy, button: "left", buttons: 0 });
+  }
+
   async drag(selector, dx, dy) {
     const box = await this.evaluate(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
@@ -471,6 +487,35 @@ async function openEditor() {
         toolsAfter.left + toolsAfter.w <= toolsAfter.vw && toolsAfter.top + toolsAfter.h <= toolsAfter.vh &&
         !!toolsAfter.saved,
       JSON.stringify({ toolsBefore, toolsAfter }),
+    );
+
+    const gripCursor = await cdp.evaluate(
+      `getComputedStyle(document.querySelector(".tools-grip")).cursor`,
+    );
+    check("the grip advertises that it moves the toolbar", gripCursor === "grab", gripCursor);
+
+    const blankSpot = await cdp.evaluate(`(() => {
+      const tools = document.querySelector(".App-toolbar.tools-floating");
+      const r = tools.getBoundingClientRect();
+      for (let dx = Math.round(r.width) - 1; dx > 0; dx -= 1) {
+        const hit = document.elementFromPoint(r.left + dx, r.top + r.height / 2);
+        if (hit === tools) return { x: r.left + dx, y: r.top + r.height / 2, left: r.left, top: r.top };
+      }
+      return null;
+    })()`);
+    let surfaceMoved = false;
+    if (blankSpot) {
+      await cdp.dragPoint(blankSpot.x, blankSpot.y, -60, 45);
+      await sleep(200);
+      surfaceMoved = await cdp.evaluate(`(() => {
+        const r = document.querySelector(".App-toolbar.tools-floating").getBoundingClientRect();
+        return Math.abs(r.left - (${blankSpot.left} - 60)) <= 2 && Math.abs(r.top - (${blankSpot.top} + 45)) <= 2;
+      })()`);
+    }
+    check(
+      "the island can be dragged from its empty surface, not only the grip",
+      Boolean(blankSpot) && surfaceMoved,
+      JSON.stringify({ blankSpot, surfaceMoved }),
     );
 
     await cdp.click(".tools-fold");

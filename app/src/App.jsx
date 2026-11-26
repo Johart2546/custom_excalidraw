@@ -571,7 +571,25 @@ export default function App() {
     const clearTimer = window.setTimeout(keepClear, 800);
     window.addEventListener("resize", keepClear);
 
-    const onDown = (event) => {
+    // Pointer capture is a nicety, not the mechanism: Safari can refuse it on a
+    // strip inside a transformed stacking context, and any drag that left the
+    // 17px grip would die mid-way. Window listeners keep it alive everywhere.
+    const onMove = (event) => {
+      const drag = toolsDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      setToolsPos(clampPoint(drag.originX + dx, drag.originY + dy));
+    };
+    const onUp = () => {
+      if (!toolsDragRef.current) return;
+      toolsDragRef.current = null;
+      window.removeEventListener("pointermove", onMove, true);
+      window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", onUp, true);
+    };
+    const beginDrag = (event) => {
       if (event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
@@ -583,28 +601,21 @@ export default function App() {
         originX: rect.left,
         originY: rect.top,
       };
+      window.addEventListener("pointermove", onMove, true);
+      window.addEventListener("pointerup", onUp, true);
+      window.addEventListener("pointercancel", onUp, true);
       try {
         grip.setPointerCapture(event.pointerId);
       } catch {
-        /* the next move still updates the position */
+        /* the window listeners are what actually move it */
       }
     };
-    const onMove = (event) => {
-      const drag = toolsDragRef.current;
-      if (!drag || drag.pointerId !== event.pointerId) return;
-      event.preventDefault();
-      const dx = event.clientX - drag.startX;
-      const dy = event.clientY - drag.startY;
-      setToolsPos(clampPoint(drag.originX + dx, drag.originY + dy));
-    };
-    const onUp = (event) => {
-      if (!toolsDragRef.current) return;
-      toolsDragRef.current = null;
-      try {
-        grip.releasePointerCapture(event.pointerId);
-      } catch {
-        /* already released */
-      }
+    const onDown = (event) => beginDrag(event);
+    // Any blank part of the island drags it too, so nobody has to find the grip;
+    // the tools themselves keep their own clicks.
+    const onSurfaceDown = (event) => {
+      if (event.target.closest?.("button, label, input, select, textarea, a[href], .ToolIcon")) return;
+      beginDrag(event);
     };
     const onFold = (event) => {
       event.preventDefault();
@@ -612,10 +623,8 @@ export default function App() {
       setToolsCollapsed(true);
     };
     grip.addEventListener("pointerdown", onDown);
-    grip.addEventListener("pointermove", onMove);
-    grip.addEventListener("pointerup", onUp);
-    grip.addEventListener("pointercancel", onUp);
     grip.addEventListener("dblclick", resetToolsPosition);
+    el.addEventListener("pointerdown", onSurfaceDown);
     fold.addEventListener("click", onFold);
 
     // React re-renders the tool row on theme/tool changes; keep our controls,
@@ -633,10 +642,9 @@ export default function App() {
       window.clearTimeout(clearTimer);
       window.removeEventListener("resize", keepClear);
       grip.removeEventListener("pointerdown", onDown);
-      grip.removeEventListener("pointermove", onMove);
-      grip.removeEventListener("pointerup", onUp);
-      grip.removeEventListener("pointercancel", onUp);
       grip.removeEventListener("dblclick", resetToolsPosition);
+      el.removeEventListener("pointerdown", onSurfaceDown);
+      onUp();
       fold.removeEventListener("click", onFold);
       grip.remove();
       slot.remove();
