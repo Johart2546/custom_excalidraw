@@ -550,8 +550,8 @@ try {
   .top { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
   h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.3px; }
   .brand {
-    width: 30px; height: 30px; flex: none; border-radius: 9px;
-    background: #fff; box-shadow: 0 2px 8px rgba(31, 36, 71, .18), 0 0 0 1px var(--glass-line);
+    width: 30px; height: 30px; flex: none;
+    filter: drop-shadow(0 1px 2px rgba(12, 16, 35, .28));
   }
   .count { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
   .grow { flex: 1; }
