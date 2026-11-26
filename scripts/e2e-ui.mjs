@@ -537,10 +537,45 @@ async function openEditor() {
         toolsFolded.launcherLabel === "แสดงเครื่องมือวาด",
       JSON.stringify(toolsFolded),
     );
+    const pillBefore = await cdp.evaluate(`(() => {
+      const pill = document.querySelector(".tools-launcher");
+      const r = pill.getBoundingClientRect();
+      return { left: r.left, top: r.top, cursor: getComputedStyle(pill).cursor };
+    })()`);
+    await cdp.drag(".tools-launcher", -120, 160);
+    await sleep(250);
+    const pillAfter = await cdp.evaluate(`(() => {
+      const pill = document.querySelector(".tools-launcher");
+      const r = pill.getBoundingClientRect();
+      return {
+        left: r.left,
+        top: r.top,
+        stillFolded: document.querySelector(".shell").classList.contains("tools-collapsed"),
+        saved: JSON.parse(localStorage.getItem("boards-tools") || "null"),
+      };
+    })()`);
+    check(
+      "the folded pill can be dragged around and stays folded",
+      pillBefore.cursor === "grab" && pillAfter.stillFolded &&
+        Math.abs(pillAfter.left - (pillBefore.left - 120)) <= 2 &&
+        Math.abs(pillAfter.top - (pillBefore.top + 160)) <= 2 &&
+        !!pillAfter.saved,
+      JSON.stringify({ pillBefore, pillAfter }),
+    );
+
     await cdp.click(".tools-launcher");
     await cdp.waitFor(`!document.querySelector(".shell").classList.contains("tools-collapsed")`, {
       label: "tools unfold",
     });
+    const unfoldedAt = await cdp.evaluate(`(() => {
+      const r = document.querySelector(".App-toolbar.tools-floating").getBoundingClientRect();
+      return { left: r.left, top: r.top };
+    })()`);
+    check(
+      "unfolding puts the row where the pill was",
+      Math.abs(unfoldedAt.left - pillAfter.left) <= 2 && Math.abs(unfoldedAt.top - pillAfter.top) <= 2,
+      JSON.stringify({ pillAfter, unfoldedAt }),
+    );
     check(
       "the launcher brings the drawing tools back",
       (await cdp.evaluate(`getComputedStyle(document.querySelector(".App-toolbar")).display`)) !== "none",

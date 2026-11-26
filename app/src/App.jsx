@@ -372,6 +372,9 @@ export default function App() {
   const toolsRef = useRef(null);
   const toolsNaturalRef = useRef(null);
   const toolsDragRef = useRef(null);
+  const launcherRef = useRef(null);
+  const launcherDragRef = useRef(null);
+  const launcherMovedRef = useRef(false);
   const toolsCollapsedRef = useRef(toolsCollapsed);
   toolsCollapsedRef.current = toolsCollapsed;
 
@@ -456,7 +459,9 @@ export default function App() {
   }, []);
 
   const resetToolsPosition = useCallback(() => {
-    const el = toolsRef.current;
+    // When the row is folded away the toolbar is display:none and measures 0,
+    // so the pill is the element that has to go back to the middle.
+    const el = toolsCollapsedRef.current ? launcherRef.current : toolsRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const viewW = document.documentElement.clientWidth || window.innerWidth;
@@ -745,6 +750,64 @@ export default function App() {
     if (phase !== "ready" || !toolsReady || toolsCollapsed) return;
     clampTools();
   }, [phase, toolsReady, toolsCollapsed, toolsPos, clampTools]);
+
+  // The folded pill is the toolbar's only visible part, so it has to travel the
+  // same way: drag to move, plain click still opens the row, double-click resets.
+  useEffect(() => {
+    const pill = launcherRef.current;
+    if (!pill || !toolsCollapsed) return undefined;
+
+    const clampPill = (x, y) => {
+      const rect = pill.getBoundingClientRect();
+      const viewW = document.documentElement.clientWidth || window.innerWidth;
+      const viewH = document.documentElement.clientHeight || window.innerHeight;
+      return {
+        x: Math.min(Math.max(TOOLS_MARGIN, x), Math.max(TOOLS_MARGIN, viewW - rect.width - TOOLS_MARGIN)),
+        y: Math.min(Math.max(TOOLS_MARGIN, y), Math.max(TOOLS_MARGIN, viewH - rect.height - TOOLS_MARGIN)),
+      };
+    };
+
+    const onMove = (event) => {
+      const drag = launcherDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) launcherMovedRef.current = true;
+      setToolsPos(clampPill(drag.originX + dx, drag.originY + dy));
+    };
+    const onUp = () => {
+      if (!launcherDragRef.current) return;
+      launcherDragRef.current = null;
+      window.removeEventListener("pointermove", onMove, true);
+      window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", onUp, true);
+    };
+    const onDown = (event) => {
+      if (event.button !== 0) return;
+      const rect = pill.getBoundingClientRect();
+      launcherDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: rect.left,
+        originY: rect.top,
+      };
+      launcherMovedRef.current = false;
+      window.addEventListener("pointermove", onMove, true);
+      window.addEventListener("pointerup", onUp, true);
+      window.addEventListener("pointercancel", onUp, true);
+    };
+    pill.addEventListener("pointerdown", onDown);
+    return () => {
+      pill.removeEventListener("pointerdown", onDown);
+      onUp();
+    };
+    // Deliberately not keyed on toolsPos: the drag itself moves the pill, and
+    // re-running this effect on every move would tear the listeners down after
+    // the first pixel. No double-click reset either — a single click opens the
+    // row, so the pill cannot also wait for a second one.
+  }, [toolsCollapsed, resetToolsPosition]);
 
   useEffect(() => {
     const onResize = () => clampTools();
@@ -1708,10 +1771,19 @@ export default function App() {
         <button
           type="button"
           className="tools-launcher"
+          ref={launcherRef}
           style={{ left: toolsPos.x, top: toolsPos.y }}
-          onClick={() => setToolsCollapsed(false)}
+          onClick={(event) => {
+            // A drag ends with a click event; that click must not open the row.
+            if (launcherMovedRef.current) {
+              launcherMovedRef.current = false;
+              event.preventDefault();
+              return;
+            }
+            setToolsCollapsed(false);
+          }}
           aria-label="แสดงเครื่องมือวาด"
-          title="แสดงเครื่องมือวาด"
+          title="ลากเพื่อย้าย · คลิกเพื่อกางเครื่องมือวาด"
         >
           <IconTools />
           <span>เครื่องมือ</span>
